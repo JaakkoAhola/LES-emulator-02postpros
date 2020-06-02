@@ -10,8 +10,10 @@ import numpy
 import pandas
 import pathlib
 import time
-
+import os
 import LES2emu
+import f90nml
+from subprocess import run
 
 class EmulatorData:
     def __init__(self, name, trainingSimulationRootFolder, dataOutputRootFolder, trainingOutputVariable, filterValue = -999, responseIndicator = 0):
@@ -92,11 +94,83 @@ class EmulatorData:
             folder.mkdir( parents=True, exist_ok = True )
             
             train = self.simulationFilteredData.drop(ind, axis = 0)
-            train.to_csv( folder / "DATA_train", sep = " ", header = False, index = False )
+            train.to_csv( folder / "DATA_train", float_format="%017.11e", sep = " ", header = False, index = False )
             
-            predict = self.simulationFilteredData.iloc[ind]
+            predict = self.simulationFilteredData.iloc[ind].values
             
-            predict.to_csv( folder / "DATA_predict", sep = " ", header = False, index = False, line_terminator = " ")
+            numpy.savetxt( folder / "DATA_predict", predict, fmt="%017.11e", newline = " ")
+            
+    def saveNamelists(self):
+        trainNML = {"inputoutput":
+                    {"trainingDataInputFile":"DATA_train",
+                     "trainedEmulatorGPFile" :"out.gp",
+                     "separator": " ",
+                     "debugFlag": False}}
+            
+        predictNML = {"inputoutput":
+                      {"trainingDataInputFile":"DATA_train",
+	                   "trainedEmulatorGPFile":"out.gp",
+	                   "predictionDataInputFile":"DATA_predict",
+	                   "predictionOutputFile":"DATA_predict_output",
+	                   "separator":" ",
+	                   "debugFlag":False}}
+        
+        
+        for ind in range(self.simulationFilteredData.shape[0]):
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            with open(folder / "train.nml", mode="w") as trainNMLFile:
+                f90nml.write(trainNML, trainNMLFile)
+            with open(folder / "predict.nml", mode="w") as predictNMLFile:
+                f90nml.write(predictNML, predictNMLFile)
+                
+                
+    def linkExecutables(self):
+        for ind in range(self.simulationFilteredData.shape[0]):
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
+            run(["ln","-sf", os.environ["GPPREDICTEMULATOR"], folder / "gp_predict"])
+    
+    def runTrain(self):
+        for ind in range(self.simulationFilteredData.shape[0]):
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            print(" ")
+            print("runTrain", folder)
+            os.chdir(folder)
+            
+            if not pathlib.Path("out.gp").is_file():
+                run([ "./gp_train"])
+                
+        
+    def runPrediction(self):
+        for ind in range(self.simulationFilteredData.shape[0]):
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            print(" ")
+            print("runPrediction", folder)
+            os.chdir(folder)
+	    if not pathlib.Path("DATA_predict_output").is_file():
+            	run([ "./gp_predict"])
+            
+    def collectSimulatedVSPredictedData(self):
+        datadict = {"Simulated", [],
+                    "Emulated", []}
+                
+        self.simulatedVSPredictedData
+        for ind in range(self.simulationFilteredData.shape[0]):
+            folder = (self.fortranDataFolder / str(ind) )
+            
+            simulated = pandas.read_csv( folder / "DATA_predict", delim_whitespace = True, header = None).iloc[0,-1]
+            emulated  = pandas.read_csv( folder / "DATA_predict_output", delim_whitespace = True, header = None).iloc[0,0]
+            datadict["Simulated"].append(simulated)
+            datadict["Emulated"].append(emulated)
+            
+        self.simulatedVSPredictedData = pandas.DataFrame(datadict, columns = ['Simulated', 'Emulated'])
+        self.simulatedVSPredictedData.to_csv( self.dataOutputRootFolder / "simulatedVSPredictedData.csv", float_format="%017.11e",
+                                             sep = " ", header = False, index = False )
+        
     
     def setSimulationCompleteDataFromDesignAndTraining(self):
         #designCSVPath, trainingCSVPath, trainingVariableName = "wpos"
@@ -121,8 +195,8 @@ class EmulatorData:
     
 def main():
     
-    rootFolderOfEmulatorSets = "/home/aholaj/mounttauskansiot/eclairmount/"
-    rootFolderOfDataOutputs = "/home/aholaj/Nextcloud/000_WORK/000_ARTIKKELIT/001_Manuscript_LES_emulator/data/"
+    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
+    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
     trainingOutputVariable = "wpos"
     getTrainingOutputFLAG = False
    
@@ -153,8 +227,8 @@ def main():
                                            )
                 }
     
-    for ind, key in enumerate(list(emulatorSets)):
-        
+    for key in emulatorSets:
+
         if getTrainingOutputFLAG: emulatorSets[key].saveUpdraftFromTrainingSimulations()
         
         emulatorSets[key].setSimulationCompleteDataFromDesignAndTraining()
@@ -167,8 +241,17 @@ def main():
         emulatorSets[key].saveFilteredDataFortranMode()
         
         emulatorSets[key].saveOmittedData()
+        
+        emulatorSets[key].saveNamelists()
+        
+        emulatorSets[key].linkExecutables()
+        
+        emulatorSets[key].runTrain()
+        
+        emulatorSets[key].runPrediction()
+        
+        #emulatorSets[key].collectSimulatedVSPredictedData()
     
-    #print(emulatorSets["LVL3Day"].getSimulationFilteredData())
     
 if __name__ == "__main__":
     start = time.time()
