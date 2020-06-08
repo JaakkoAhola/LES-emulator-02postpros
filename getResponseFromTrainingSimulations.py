@@ -125,7 +125,6 @@ class EmulatorData:
             train.to_csv( folder / "DATA_train", float_format="%017.11e", sep = " ", header = False, index = False )
             
             predict = self.simulationFilteredData.iloc[ind].values
-            
             numpy.savetxt( folder / "DATA_predict", predict, fmt="%017.11e", newline = " ")
             
     def saveNamelists(self):
@@ -174,48 +173,71 @@ class EmulatorData:
             run([ "./gp_train"])
     
     def runTrain(self):
-        pool = multiprocessing.Pool(processes = self.numCores)
+        
          
         indexGroup = range(self._getFilteredSize())
         # partialSelf = functools.partial(self._runTrain)
-        for ind in pool.imap_unordered( self._runTrain, indexGroup):
-             pass     
+        try:
+            pool = multiprocessing.Pool(processes = self.numCores)
+            for ind in pool.imap_unordered( self._runTrain, indexGroup):
+                 pass     
+        except Exception as e:
+            pool.close()
+        pool.close()
     
     def _runPrediction(self,ind):
         folder = (self.fortranDataFolder / str(ind) )
         print(" ")
         print(self.name, "checking prediction output, case", ind)
         os.chdir(folder)
+        outputfile = pathlib.Path("DATA_predict_output")
         
-        if not pathlib.Path("DATA_predict_output").is_file():
+        fileExists = outputfile.is_file()
+        
+        if fileExists:
+            fileIsEmpty = numpy.isnan(self._readPredictedData("."))
+            if fileIsEmpty:
+                outputfile.unlink() #remove file
+            
+        if not fileExists:
             print("runPrediction", folder)
             run([ "./gp_predict"])
     
-    def runPrediction(self):
-        pool = multiprocessing.Pool(processes = self.numCores)
-         
+    def runPredictionParallel(self):
+        
         indexGroup = range(self._getFilteredSize())
-        # partialSelf = functools.partial(self._runPrediction)
-        for ind in pool.imap_unordered( self._runPrediction, indexGroup):
-             pass
+        
+        try:
+            pool = multiprocessing.Pool(processes = self.numCores)
+            for ind in pool.imap_unordered( self._runPrediction, indexGroup):
+                 pass
+        except Exception as e:
+            pool.close()
+        pool.close()
+        
+    def runPredictionSerial(self):
+        for ind in range(self._getFilteredSize()):
+            self._runPrediction(ind)
         
             
     def collectSimulatedVSPredictedData(self):
-        datadict = {"Simulated", [],
-                    "Emulated", []}
+        datadict = {"Simulated": [],
+                    "Emulated": []}
                 
-        self.simulatedVSPredictedData
+        # self.simulatedVSPredictedData
         for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             
             simulated = pandas.read_csv( folder / "DATA_predict", delim_whitespace = True, header = None).iloc[0,-1]
-            emulated  = pandas.read_csv( folder / "DATA_predict_output", delim_whitespace = True, header = None).iloc[0,0]
+            emulated  = self._readPredictedData(folder)
+            
+            print("simulated", simulated, "emulated", emulated)
             datadict["Simulated"].append(simulated)
             datadict["Emulated"].append(emulated)
             
         self.simulatedVSPredictedData = pandas.DataFrame(datadict, columns = ['Simulated', 'Emulated'])
-        self.simulatedVSPredictedData.to_csv( self.dataOutputFolder / "simulatedVSPredictedData.csv", float_format="%017.11e",
-                                             sep = " ", header = False, index = False )
+        self.simulatedVSPredictedData.to_csv( self.dataOutputFolder / (self.name + "_simulatedVSPredictedData.csv"),
+                                             sep = ",", index = False )
         
     
     def setSimulationCompleteDataFromDesignAndTraining(self):
@@ -235,6 +257,12 @@ class EmulatorData:
         
         self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.trainingOutputVariable ] != self.filterValue ]
         
+    def _readPredictedData(self, folder):
+        try:
+            data = pandas.read_csv( pathlib.Path(folder) / "DATA_predict_output", delim_whitespace = True, header = None).iloc[0,0]
+        except pandas.errors.EmptyDataError:
+            data = numpy.nan
+        return data
     
     
         
@@ -295,7 +323,7 @@ def main(trainingOutputVariable):
         
         emulatorSets[key].runTrain()
         
-        emulatorSets[key].runPrediction()
+        emulatorSets[key].runPredictionSerial()
         
         #emulatorSets[key].collectSimulatedVSPredictedData()
     
