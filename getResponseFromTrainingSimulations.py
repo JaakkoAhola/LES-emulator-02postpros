@@ -11,6 +11,7 @@ import pandas
 import pathlib
 import time
 import os
+import sys
 import LES2emu
 import f90nml
 from subprocess import run
@@ -22,7 +23,7 @@ class EmulatorData:
     def __init__(self, name, trainingSimulationRootFolder, dataOutputRootFolder, trainingOutputVariable, filterValue = -999, responseIndicator = 0):
         self.name = name
         self.trainingSimulationRootFolder = pathlib.Path( trainingSimulationRootFolder )
-        self.dataOutputRootFolder = pathlib.Path(dataOutputRootFolder)
+        self.dataOutputFolder = pathlib.Path(dataOutputRootFolder) / self.name
         self.trainingOutputVariable = trainingOutputVariable
         
         self.possibleEmulatedVariables = ["id", "cond", "sedi", "coag", "auto", "diag", "prcp", "wpos", "w2pos", "cdnc_p", "cdnc_wp", "n"]
@@ -31,18 +32,31 @@ class EmulatorData:
         
         self.indexOfTrainingOutputVariable = self.possibleEmulatedVariablesDict[ self.trainingOutputVariable ]
         
-        self.designCSVFile = self.dataOutputRootFolder / (self.name + "_design.csv")
-        self.trainingOutputCSVFile = self.dataOutputRootFolder / ( self.name + "_" + self.trainingOutputVariable + ".csv")
-        self.filteredCSVFile = self.dataOutputRootFolder / (self.name + "_filtered.csv")
+        self.designCSVFile = self.dataOutputFolder / (self.name + "_design.csv")
+        self.trainingOutputCSVFile = self.dataOutputFolder / ( self.name + "_" + self.trainingOutputVariable + ".csv")
+        self.filteredCSVFile = self.dataOutputFolder / (self.name + "_filtered.csv")
         
-        self.dataFile = self.dataOutputRootFolder / (self.name + "_DATA")
+        self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
         
         self.filterValue = filterValue
         self.responseIndicator = responseIndicator
         
-        self.fortranDataFolder = self.dataOutputRootFolder / "DATA"
+        self.fortranDataFolder = self.dataOutputFolder / "DATA"
         
         self.numCores = multiprocessing.cpu_count()
+    
+    def _getFilteredSize(self):
+        
+        try:
+            returnValue = self.simulationFilteredData.shape[0]
+        except AttributeError:
+            try:
+                pathGlob = self.fortranDataFolder.glob("**/*")
+                returnValue = len([x for x in pathGlob if x.is_dir()])
+            except:
+                sys.exit("_getFilteredSize not working")
+        
+        return returnValue
         
     
     def getName(self):
@@ -52,7 +66,7 @@ class EmulatorData:
         return self.trainingSimulationRootFolder
     
     def getDataOutputFolder(self):
-        return self.dataOutputRootFolder
+        return self.dataOutputFolder
     
     def getTrainingOutputVariable(self):
         return self.trainingOutputVariable
@@ -130,7 +144,7 @@ class EmulatorData:
 	                   "debugFlag":False}}
         
         
-        for ind in range(self.simulationFilteredData.shape[0]):
+        for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             with open(folder / "train.nml", mode="w") as trainNMLFile:
@@ -140,7 +154,7 @@ class EmulatorData:
                 
                 
     def linkExecutables(self):
-        for ind in range(self.simulationFilteredData.shape[0]):
+        for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
@@ -152,36 +166,46 @@ class EmulatorData:
         
         folder = (self.fortranDataFolder / str(ind) )
         print(" ")
-        print("runTrain", folder)
+        print(self.name,"checking training output, case", ind)
         os.chdir(folder)
         
         if not pathlib.Path("out.gp").is_file():
+            print("runTrain", folder)
             run([ "./gp_train"])
     
     def runTrain(self):
         pool = multiprocessing.Pool(processes = self.numCores)
          
-        indexGroup = range(self.simulationFilteredData.shape[0])
-        partialSelf = functools.partial(self._runTrain)
-        for ind in pool.imap_unordered( partialSelf, indexGroup):
+        indexGroup = range(self._getFilteredSize())
+        # partialSelf = functools.partial(self._runTrain)
+        for ind in pool.imap_unordered( self._runTrain, indexGroup):
              pass     
+    
+    def _runPrediction(self,ind):
+        folder = (self.fortranDataFolder / str(ind) )
+        print(" ")
+        print(self.name, "checking prediction output, case", ind)
+        os.chdir(folder)
         
-    def runPrediction(self):
-        for ind in range(self.simulationFilteredData.shape[0]):
-            folder = (self.fortranDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-            print(" ")
+        if not pathlib.Path("DATA_predict_output").is_file():
             print("runPrediction", folder)
-            os.chdir(folder)
-            if not pathlib.Path("DATA_predict_output").is_file():
-            	run([ "./gp_predict"])
+            run([ "./gp_predict"])
+    
+    def runPrediction(self):
+        pool = multiprocessing.Pool(processes = self.numCores)
+         
+        indexGroup = range(self._getFilteredSize())
+        # partialSelf = functools.partial(self._runPrediction)
+        for ind in pool.imap_unordered( self._runPrediction, indexGroup):
+             pass
+        
             
     def collectSimulatedVSPredictedData(self):
         datadict = {"Simulated", [],
                     "Emulated", []}
                 
         self.simulatedVSPredictedData
-        for ind in range(self.simulationFilteredData.shape[0]):
+        for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             
             simulated = pandas.read_csv( folder / "DATA_predict", delim_whitespace = True, header = None).iloc[0,-1]
@@ -190,7 +214,7 @@ class EmulatorData:
             datadict["Emulated"].append(emulated)
             
         self.simulatedVSPredictedData = pandas.DataFrame(datadict, columns = ['Simulated', 'Emulated'])
-        self.simulatedVSPredictedData.to_csv( self.dataOutputRootFolder / "simulatedVSPredictedData.csv", float_format="%017.11e",
+        self.simulatedVSPredictedData.to_csv( self.dataOutputFolder / "simulatedVSPredictedData.csv", float_format="%017.11e",
                                              sep = " ", header = False, index = False )
         
     
@@ -215,11 +239,10 @@ class EmulatorData:
     
         
     
-def main():
+def main(trainingOutputVariable):
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
     rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
-    trainingOutputVariable = "wpos"
     getTrainingOutputFLAG = False
    
     ###########
@@ -229,22 +252,22 @@ def main():
     
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
                                              rootFolderOfEmulatorSets /  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night",
-                                             rootFolderOfDataOutputs / "LVL3Night",
+                                             rootFolderOfDataOutputs,
                                              trainingOutputVariable
                                              ),
                 "LVL3Day"   :  EmulatorData( "LVL3Day",
                                             rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day",
-                                            rootFolderOfDataOutputs / "LVL3Day",
+                                            rootFolderOfDataOutputs,
                                             trainingOutputVariable
                                             ),
                 "LVL4Night" :  EmulatorData("LVL4Night",
                                             rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night",
-                                            rootFolderOfDataOutputs / "LVL4Night",
+                                            rootFolderOfDataOutputs,
                                             trainingOutputVariable
                                             ),
                 "LVL4Day"   : EmulatorData("LVL4Day",
                                            rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
-                                           rootFolderOfDataOutputs / "LVL4Day",
+                                           rootFolderOfDataOutputs,
                                            trainingOutputVariable
                                            )
                 }
@@ -279,6 +302,12 @@ def main():
     
 if __name__ == "__main__":
     start = time.time()
-    main()
+    try:
+        trainingOutputVariable = sys.argv[1]
+    except IndexError:
+        trainingOutputVariable = "wpos"
+    
+    print("trainingOutputVariable: ",trainingOutputVariable)
+    main(trainingOutputVariable)
     end = time.time()
     print("Script completed in " + str(round((end - start),0)) + " seconds")
