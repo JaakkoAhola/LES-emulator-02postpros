@@ -14,6 +14,8 @@ import os
 import LES2emu
 import f90nml
 from subprocess import run
+import multiprocessing
+import functools
 
 class EmulatorData:
     def __init__(self, name, trainingSimulationRootFolder, dataOutputRootFolder, trainingOutputVariable, filterValue = -999, responseIndicator = 0):
@@ -32,6 +34,8 @@ class EmulatorData:
         self.responseIndicator = responseIndicator
         
         self.fortranDataFolder = self.dataOutputRootFolder / "DATA"
+        
+        self.numCores = multiprocessing.cpu_count()
         
     
     def getName(self):
@@ -132,17 +136,25 @@ class EmulatorData:
             run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
             run(["ln","-sf", os.environ["GPPREDICTEMULATOR"], folder / "gp_predict"])
     
+        
+        
+    def _runTrain(self, ind):
+        
+        folder = (self.fortranDataFolder / str(ind) )
+        print(" ")
+        print("runTrain", folder)
+        os.chdir(folder)
+        
+        if not pathlib.Path("out.gp").is_file():
+            run([ "./gp_train"])
+    
     def runTrain(self):
-        for ind in range(self.simulationFilteredData.shape[0]):
-            folder = (self.fortranDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-            print(" ")
-            print("runTrain", folder)
-            os.chdir(folder)
-            
-            if not pathlib.Path("out.gp").is_file():
-                run([ "./gp_train"])
-                
+        pool = multiprocessing.Pool(processes = self.numCores)
+         
+        indexGroup = range(self.simulationFilteredData.shape[0])
+        partialSelf = functools.partial(self._runTrain)
+        for ind in pool.imap_unordered( partialSelf, indexGroup):
+             pass     
         
     def runPrediction(self):
         for ind in range(self.simulationFilteredData.shape[0]):
@@ -151,7 +163,7 @@ class EmulatorData:
             print(" ")
             print("runPrediction", folder)
             os.chdir(folder)
-	    if not pathlib.Path("DATA_predict_output").is_file():
+            if not pathlib.Path("DATA_predict_output").is_file():
             	run([ "./gp_predict"])
             
     def collectSimulatedVSPredictedData(self):
