@@ -30,7 +30,7 @@
 
 Here {TrainingSet} is the short name of the training set, i.e. one of LVL3Day, LVL3Night, LVL4Day or LVL4Night.
 
-- (getEmulatorData.py)[getEmulatorData.py] produces the following files within `$EMULATORPOSTPROSDATAROOTFOLDER/{TrainingSet}` :
+- (getResponseFromTrainingSimulations.py)[getResponseFromTrainingSimulations.py] produces the following files within `$EMULATORPOSTPROSDATAROOTFOLDER/{TrainingSet}` :
 
 	- The design of training simulations, based on Binary Space Partitioning method. Here copied from training data folder and renamed as: {TrainingSet}_design.csv
 	- Filtered data in FORTRAN friendly format: {TrainingSet}_DATA
