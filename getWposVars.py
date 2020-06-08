@@ -16,6 +16,7 @@ import f90nml
 from subprocess import run
 import multiprocessing
 import functools
+from shutil import copyfile
 
 class EmulatorData:
     def __init__(self, name, trainingSimulationRootFolder, dataOutputRootFolder, trainingOutputVariable, filterValue = -999, responseIndicator = 0):
@@ -61,6 +62,9 @@ class EmulatorData:
     
     def getSimulationFilteredData(self):
         return self.simulationFilteredData
+    
+    def copyDesignToPostProsFolder(self):
+        copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
     
     def saveUpdraftFromTrainingSimulations(self):
         #,emulatorFolder, csvFolder, csvFilename
@@ -242,6 +246,8 @@ def main():
     for key in emulatorSets:
 
         if getTrainingOutputFLAG: emulatorSets[key].saveUpdraftFromTrainingSimulations()
+        
+        emulatorSets[key].copyDesignToPostProsFolder()
         
         emulatorSets[key].setSimulationCompleteDataFromDesignAndTraining()
         
