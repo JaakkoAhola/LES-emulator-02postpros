@@ -37,7 +37,7 @@ Here {TrainingSet} is the short name of the training set, i.e. one of LVL3Day, L
 	- Filtered data in csv-format: {TrainingSet}_filtered.csv
 	- Response of UCLALES-SALSA training simulations. In this case the updraft velocity at cloud base: {TrainingSet}_wpos.csv
 	- subfolder DATA consists of omitting one point from training data and predicting that point with emulator
-	- Simulated vs Emulated data: *TODO*
+	- Emulated variable including filtered data:{TrainingSet}_simulatedVSPredictedData.csv
 
 - (getSensitivityAnalysis.bash)[getSensitivityAnalysis.bash] calls R-script (sensitivityAnalysis.r)[sensitivityAnalysis.r] for each training set
 
