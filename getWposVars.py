@@ -25,6 +25,12 @@ class EmulatorData:
         self.dataOutputRootFolder = pathlib.Path(dataOutputRootFolder)
         self.trainingOutputVariable = trainingOutputVariable
         
+        self.possibleEmulatedVariables = ["id", "cond", "sedi", "coag", "auto", "diag", "prcp", "wpos", "w2pos", "cdnc_p", "cdnc_wp", "n"]
+        
+        self.possibleEmulatedVariablesDict = dict(zip(self.possibleEmulatedVariables, range(len(self.possibleEmulatedVariables))))
+        
+        self.indexOfTrainingOutputVariable = self.possibleEmulatedVariablesDict[ self.trainingOutputVariable ]
+        
         self.designCSVFile = self.dataOutputRootFolder / (self.name + "_design.csv")
         self.trainingOutputCSVFile = self.dataOutputRootFolder / ( self.name + "_" + self.trainingOutputVariable + ".csv")
         self.filteredCSVFile = self.dataOutputRootFolder / (self.name + "_filtered.csv")
@@ -66,13 +72,13 @@ class EmulatorData:
     def copyDesignToPostProsFolder(self):
         copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
     
-    def saveUpdraftFromTrainingSimulations(self):
+    def saveResponseFromTrainingSimulations(self):
         #,emulatorFolder, csvFolder, csvFilename
         
         EmuVars = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder) )
         
         with open( self.trainingOutputCSVFile,'w') as file:
-            file.writelines(["%s\n" % (item[7])  for item in EmuVars])
+            file.writelines(["%s\n" % (item[self.indexOfTrainingOutputVariable])  for item in EmuVars])
 
     def saveFilteredData(self):
         self.simulationFilteredData.to_csv( self.filteredCSVFile )
@@ -245,7 +251,7 @@ def main():
     
     for key in emulatorSets:
 
-        if getTrainingOutputFLAG: emulatorSets[key].saveUpdraftFromTrainingSimulations()
+        if getTrainingOutputFLAG: emulatorSets[key].saveResponseFromTrainingSimulations()
         
         emulatorSets[key].copyDesignToPostProsFolder()
         
