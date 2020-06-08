@@ -81,7 +81,11 @@ class EmulatorData:
         return self.simulationCompleteData
     
     def getSimulationFilteredData(self):
-        return self.simulationFilteredData
+        try:
+            return self.simulationFilteredData
+        except AttributeError:
+            self.simulationFilteredData = pandas.read_csv( self.filteredCSVFile )
+            return self.simulationFilteredData
     
     def copyDesignToPostProsFolder(self):
         copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
@@ -221,10 +225,11 @@ class EmulatorData:
         
             
     def collectSimulatedVSPredictedData(self):
-        datadict = {"Simulated": [],
-                    "Emulated": []}
-                
-        # self.simulatedVSPredictedData
+        datadict = {self.trainingOutputVariable + "_Simulated": [],
+                    self.trainingOutputVariable + "_Emulated": []}
+        
+        self.simulatedVSPredictedData = self.getSimulationFilteredData()
+        
         for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             
@@ -232,10 +237,16 @@ class EmulatorData:
             emulated  = self._readPredictedData(folder)
             
             print("simulated", simulated, "emulated", emulated)
-            datadict["Simulated"].append(simulated)
-            datadict["Emulated"].append(emulated)
+            datadict[self.trainingOutputVariable + "_Simulated"].append(simulated)
+            datadict[self.trainingOutputVariable + "_Emulated"].append(emulated)
+        
+        
+        for key in datadict:
             
-        self.simulatedVSPredictedData = pandas.DataFrame(datadict, columns = ['Simulated', 'Emulated'])
+            self.simulatedVSPredictedData[key] = datadict[key]
+        
+        self.simulatedVSPredictedData.rename(columns={'Unnamed: 0': 'designCase'}, inplace=True)
+        
         self.simulatedVSPredictedData.to_csv( self.dataOutputFolder / (self.name + "_simulatedVSPredictedData.csv"),
                                              sep = ",", index = False )
         
@@ -325,7 +336,7 @@ def main(trainingOutputVariable):
         
         emulatorSets[key].runPredictionSerial()
         
-        #emulatorSets[key].collectSimulatedVSPredictedData()
+        emulatorSets[key].collectSimulatedVSPredictedData()
     
     
 if __name__ == "__main__":
