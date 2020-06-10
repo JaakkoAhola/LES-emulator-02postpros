@@ -236,7 +236,7 @@ class EmulatorData:
             simulated = pandas.read_csv( folder / "DATA_predict", delim_whitespace = True, header = None).iloc[0,-1]
             emulated  = self._readPredictedData(folder)
             
-            print("simulated", simulated, "emulated", emulated)
+
             datadict[self.trainingOutputVariable + "_Simulated"].append(simulated)
             datadict[self.trainingOutputVariable + "_Emulated"].append(emulated)
         
