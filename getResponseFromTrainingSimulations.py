@@ -41,7 +41,7 @@ class EmulatorData:
         self.filterValue = filterValue
         self.responseIndicator = responseIndicator
         
-        self.fortranDataFolder = self.dataOutputFolder / "DATA"
+        self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.trainingOutputVariable)
         
         self.numCores = multiprocessing.cpu_count()
     
