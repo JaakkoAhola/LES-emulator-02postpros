@@ -167,7 +167,7 @@ for i in range(1,n+1):
     #
     wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file,tstart,tend,ttol=10.)
     #
-    print i,wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m
+    print(i,wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m)
     #
     if '_LVL4' in path:
         # No 3d radiative flux data for Level 4
