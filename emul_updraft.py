@@ -4,9 +4,10 @@
 # Note 2: Level 4 radiative flux and Level 3 CDNC are not 3D outputs!
 #
 
-
+import netCDF4 as netcdf
 import numpy
-
+import os
+import time
 #
 # ************************* Functions *************************
 # From LES2emu.py
@@ -27,9 +28,6 @@ def get_netcdf_updraft(fname,tstart,tend,ttol=3600.,tol_clw=1e-5):
     #  ttol            Time tolelance (s) for finding averaging window
     #  tol_clw         Cloud liquid water mixing ratio (kg/kg) for the cloud base
     #
-    import os
-    import netCDF4 as netcdf
-    import numpy
     #
     # File must exist
     if not os.path.lexists(fname): raise RuntimeError(fname+' not found!')
@@ -127,53 +125,62 @@ def get_netcdf_updraft(fname,tstart,tend,ttol=3600.,tol_clw=1e-5):
 #
 # ************************* Calculations *************************
 #
-
-# Input data
-opt = 4
-if opt==1:
-    # Level 3
-    # BSP design (3.0.0) + level 3 + night (Jan 2019)
-    path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night'
-    n=500
-    out_name='updraft_L3_N.txt'
-elif opt==2:
-    # BSP design (3.1.0) + level 3 + day (Jan 2019)
-    path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day'
-    n=500
-    out_name='updraft_L3_D.txt'
-elif opt==3:
-    # Level 4
-    # BSP design (3,2,3 & 3.2.4) + level 4 + night (9.4.2019 & 6.6.2019)
-    path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night'
-    n=135
-    out_name='updraft_L4_N.txt'
-else:
-    # BSP design (3,3,2 & 3.3.3) + level 4 + day (9.4.2019 & 6.6.2019)
-    path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day'
-    n=150
-    out_name='updraft_L4_D.txt'
-fmt='/emul%03u/emul%03u'
-#
-# Time window
-tstart=2.5*3600
-tend=3.5*3600
-#
-# Outputs
-out=[]
-#
-for i in range(1,n+1):
-    # Data file
-    file=(path+fmt+'.nc') % (i,i)
-    #
-    wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file,tstart,tend,ttol=10.)
-    #
-    print(i,wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m)
-    #
-    if '_LVL4' in path:
-        # No 3d radiative flux data for Level 4
-        out.append([wpos,w2pos,cdnc_p,cdnc_wp,n])
+def main():
+        
+    # Input data
+    opt = 4
+    if opt==1:
+        # Level 3
+        # BSP design (3.0.0) + level 3 + night (Jan 2019)
+        path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night'
+        n=500
+        out_name='updraft_L3_N.txt'
+    elif opt==2:
+        # BSP design (3.1.0) + level 3 + day (Jan 2019)
+        path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day'
+        n=500
+        out_name='updraft_L3_D.txt'
+    elif opt==3:
+        # Level 4
+        # BSP design (3,2,3 & 3.2.4) + level 4 + night (9.4.2019 & 6.6.2019)
+        path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night'
+        n=135
+        out_name='updraft_L4_N.txt'
     else:
-        # No 3d CDNC data for Level 3
-        out.append([wpos,w2pos,n,drflx,m])
-#
-numpy.savetxt(out_name,out,delimiter=' ',newline='\n')
+        # BSP design (3,3,2 & 3.3.3) + level 4 + day (9.4.2019 & 6.6.2019)
+        path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day'
+        n=150
+        out_name='updraft_L4_D.txt'
+    fmt='/emul%03u/emul%03u'
+    #
+    # Time window
+    tstart=2.5*3600
+    tend=3.5*3600
+    #
+    # Outputs
+    out=[]
+    #
+    for i in range(1,n+1):
+        # Data file
+        file=(path+fmt+'.nc') % (i,i)
+        #
+        wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file,tstart,tend,ttol=10.)
+        #
+        print(i,wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m)
+        #
+        if '_LVL4' in path:
+            # No 3d radiative flux data for Level 4
+            out.append([wpos,w2pos,cdnc_p,cdnc_wp,n])
+        else:
+            # No 3d CDNC data for Level 3
+            out.append([wpos,w2pos,n,drflx,m])
+    #
+    numpy.savetxt(out_name,out,delimiter=' ',newline='\n')
+
+if __name__ == "__main__":
+    start = time.time()
+    
+    main()
+    
+    end = time.time()
+    print("Script completed in " + str(round((end - start),0)) + " seconds")

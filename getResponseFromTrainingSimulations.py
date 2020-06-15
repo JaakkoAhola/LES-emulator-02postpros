@@ -20,30 +20,37 @@ import functools
 from shutil import copyfile
 
 class EmulatorData:
-    def __init__(self, name, trainingSimulationRootFolder, dataOutputRootFolder, trainingOutputVariable, filterValue = -999, responseIndicator = 0):
+    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : str, responseVariable : str, filterValue = -999, responseIndicator = 0):
         self.name = name
-        self.trainingSimulationRootFolder = pathlib.Path( trainingSimulationRootFolder )
+        self.trainingSimulationRootFolder = pathlib.Path( "/".join(trainingSimulationRootFolder) )
+        
         self.dataOutputFolder = pathlib.Path(dataOutputRootFolder) / self.name
-        self.trainingOutputVariable = trainingOutputVariable
+        self._makeFolder(self.dataOutputFolder)
         
-        self.possibleEmulatedVariables = ["id", "cond", "sedi", "coag", "auto", "diag", "prcp", "wpos", "w2pos", "cdnc_p", "cdnc_wp", "n"]
+        self.responseVariable = responseVariable
         
-        self.possibleEmulatedVariablesDict = dict(zip(self.possibleEmulatedVariables, range(len(self.possibleEmulatedVariables))))
-        
-        self.indexOfTrainingOutputVariable = self.possibleEmulatedVariablesDict[ self.trainingOutputVariable ]
         
         self.designCSVFile = self.dataOutputFolder / (self.name + "_design.csv")
-        self.trainingOutputCSVFile = self.dataOutputFolder / ( self.name + "_" + self.trainingOutputVariable + ".csv")
-        self.filteredCSVFile = self.dataOutputFolder / (self.name + "_filtered.csv")
+        self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
+        self.filteredCSVFile = self.dataOutputFolder / (self.name + "_" + self.responseVariable +  "_filtered.csv")
         
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
         
         self.filterValue = filterValue
         self.responseIndicator = responseIndicator
         
-        self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.trainingOutputVariable)
+        self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
+        self._makeFolder(self.fortranDataFolder)
         
         self.numCores = multiprocessing.cpu_count()
+        
+        self._main()
+        
+    def _main(self):
+        pass
+        
+    def _makeFolder(self, folder):
+        folder.mkdir( parents=True, exist_ok = True )
     
     def _getFilteredSize(self):
         
@@ -58,27 +65,12 @@ class EmulatorData:
         
         return returnValue
         
-    
-    def getName(self):
-        return self.name
-    
-    def getTrainingSimulationRootFolder(self):
-        return self.trainingSimulationRootFolder
-    
-    def getDataOutputFolder(self):
-        return self.dataOutputFolder
-    
-    def getTrainingOutputVariable(self):
-        return self.trainingOutputVariable
-    
-    def getDesignCSVFile(self):
-        return self.designCSVFile
-    
-    def getTrainingOutputCSVFile(self):
-        return self.trainingOutputCSVFile
-    
-    def getSimulationCompleteData(self):
-        return self.simulationCompleteData
+    def getDesign(self):
+        if not hasattr(self, "design"):
+            self.design = pandas.read_csv(self.designCSVFile, index_col=0)
+        
+        return self.design
+       
     
     def getSimulationFilteredData(self):
         try:
@@ -88,15 +80,17 @@ class EmulatorData:
             return self.simulationFilteredData
     
     def copyDesignToPostProsFolder(self):
-        copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
+        if not pathlib.Path( self.designCSVFile).is_file():
+            copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
     
-    def saveResponseFromTrainingSimulations(self):
-        #,emulatorFolder, csvFolder, csvFilename
+    def getResponseFromTrainingSimulations(self):
         
-        EmuVars = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder) )
+        if pathlib.Path( self.responseFromTrainingSimulationsCSVFile).is_file():
+             self.responseFromTrainingSimulations = pandas.read(self.responseFromTrainingSimulationsCSVFile, index_col=0)
+        else:
+             self.responseFromTrainingSimulations = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder) )
         
-        with open( self.trainingOutputCSVFile,'w') as file:
-            file.writelines(["%s\n" % (item[self.indexOfTrainingOutputVariable])  for item in EmuVars])
+        return self.responseFromTrainingSimulations
 
     def saveFilteredData(self):
         self.simulationFilteredData.to_csv( self.filteredCSVFile )
@@ -186,6 +180,7 @@ class EmulatorData:
             for ind in pool.imap_unordered( self._runTrain, indexGroup):
                  pass     
         except Exception as e:
+            print(e)
             pool.close()
         pool.close()
     
@@ -216,6 +211,7 @@ class EmulatorData:
             for ind in pool.imap_unordered( self._runPrediction, indexGroup):
                  pass
         except Exception as e:
+            print(e)
             pool.close()
         pool.close()
         
@@ -225,8 +221,8 @@ class EmulatorData:
         
             
     def collectSimulatedVSPredictedData(self):
-        datadict = {self.trainingOutputVariable + "_Simulated": [],
-                    self.trainingOutputVariable + "_Emulated": []}
+        datadict = {self.responseVariable + "_Simulated": [],
+                    self.responseVariable + "_Emulated": []}
         
         self.simulatedVSPredictedData = self.getSimulationFilteredData()
         
@@ -237,8 +233,8 @@ class EmulatorData:
             emulated  = self._readPredictedData(folder)
             
 
-            datadict[self.trainingOutputVariable + "_Simulated"].append(simulated)
-            datadict[self.trainingOutputVariable + "_Emulated"].append(emulated)
+            datadict[self.responseVariable + "_Simulated"].append(simulated)
+            datadict[self.responseVariable + "_Emulated"].append(emulated)
         
         
         for key in datadict:
@@ -252,21 +248,17 @@ class EmulatorData:
         
     
     def setSimulationCompleteDataFromDesignAndTraining(self):
-        #designCSVPath, trainingCSVPath, trainingVariableName = "wpos"
         
-        design = pandas.read_csv( self.designCSVFile )
+        self.simulationCompleteData = self.getDesign()
         
-        training = pandas.read_csv( self.trainingOutputCSVFile, header=None )
+        response = self.getResponseFromTrainingSimulations()
         
-        design[ self.trainingOutputVariable ] = training
         
-        del design["Unnamed: 0"]
-        
-        self.simulationCompleteData = design
+        self.simulationCompleteData[ self.responseVariable ] = response[self.responseVariable]
         
     def filterNan(self):
         
-        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.trainingOutputVariable ] != self.filterValue ]
+        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.responseVariable ] != self.filterValue ]
         
     def _readPredictedData(self, folder):
         try:
@@ -278,75 +270,70 @@ class EmulatorData:
     
         
     
-def main(trainingOutputVariable):
+def main(responseVariable):
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
-    getTrainingOutputFLAG = False
+    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData/prcp"
    
     ###########
-    
-    rootFolderOfEmulatorSets = pathlib.Path(rootFolderOfEmulatorSets)
-    rootFolderOfDataOutputs = pathlib.Path(rootFolderOfDataOutputs)
-    
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
-                                             rootFolderOfEmulatorSets /  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night",
+                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
                                              rootFolderOfDataOutputs,
-                                             trainingOutputVariable
+                                             responseVariable
                                              ),
                 "LVL3Day"   :  EmulatorData( "LVL3Day",
-                                            rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day",
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
                                             rootFolderOfDataOutputs,
-                                            trainingOutputVariable
+                                            responseVariable
                                             ),
                 "LVL4Night" :  EmulatorData("LVL4Night",
-                                            rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night",
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
                                             rootFolderOfDataOutputs,
-                                            trainingOutputVariable
+                                            responseVariable
                                             ),
                 "LVL4Day"   : EmulatorData("LVL4Day",
-                                           rootFolderOfEmulatorSets / "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
+                                           [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
                                            rootFolderOfDataOutputs,
-                                           trainingOutputVariable
+                                           responseVariable
                                            )
                 }
     
     for key in emulatorSets:
-
-        if getTrainingOutputFLAG: emulatorSets[key].saveResponseFromTrainingSimulations()
         
         emulatorSets[key].copyDesignToPostProsFolder()
         
-        emulatorSets[key].setSimulationCompleteDataFromDesignAndTraining()
+        emulatorSets[key].getResponseFromTrainingSimulations()
         
-        emulatorSets[key].filterNan()
-        emulatorSets[key].saveFilteredData()
+        # emulatorSets[key].setSimulationCompleteDataFromDesignAndTraining()
         
-        emulatorSets[key].setResponseIndicatorFilteredData()
+        # emulatorSets[key].filterNan()
+        # emulatorSets[key].saveFilteredData()
         
-        emulatorSets[key].saveFilteredDataFortranMode()
+        # emulatorSets[key].setResponseIndicatorFilteredData()
         
-        emulatorSets[key].saveOmittedData()
+        # emulatorSets[key].saveFilteredDataFortranMode()
         
-        emulatorSets[key].saveNamelists()
+        # emulatorSets[key].saveOmittedData()
         
-        emulatorSets[key].linkExecutables()
+        # emulatorSets[key].saveNamelists()
         
-        emulatorSets[key].runTrain()
+        # emulatorSets[key].linkExecutables()
         
-        emulatorSets[key].runPredictionSerial()
+        # emulatorSets[key].runTrain()
         
-        emulatorSets[key].collectSimulatedVSPredictedData()
+        # emulatorSets[key].runPredictionSerial()
+        
+        # emulatorSets[key].collectSimulatedVSPredictedData()
     
     
 if __name__ == "__main__":
     start = time.time()
     try:
-        trainingOutputVariable = sys.argv[1]
+        responseVariable = sys.argv[1]
     except IndexError:
-        trainingOutputVariable = "wpos"
+        responseVariable = "wpos"
     
-    print("trainingOutputVariable: ",trainingOutputVariable)
-    main(trainingOutputVariable)
+    print("responseVariable: ",responseVariable)
+    main(responseVariable)
     end = time.time()
     print("Script completed in " + str(round((end - start),0)) + " seconds")
