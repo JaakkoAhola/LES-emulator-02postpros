@@ -32,6 +32,12 @@
 # 2) Voima requires python 2.7.10, so execute "module load Python/2.7.10"
 #
 import pandas
+
+import netCDF4 as netcdf
+import numpy
+
+import os
+import sys
 def GetEmu1Vars(fname,tstart,tend,ttol=3600.,start_offset=0,end_offset=0):
     # Function calculates LES output variables for emulator v1.0 as defined in the ECLAIR proof-of-concept document
     #    https://docs.google.com/document/d/1L-YyJLhtmLYg4rJYo5biOW96eeRC7z_trZsow_8TbeE/edit
@@ -49,9 +55,6 @@ def GetEmu1Vars(fname,tstart,tend,ttol=3600.,start_offset=0,end_offset=0):
     #    tend=3.5*3600
     #    cfrac, CDNC, prcp, dn, we, cfrac_std, CDNC_std, prcp_std, dn_std, we_std = GetEmu1Vars(file,tstart,ttol=10.,start_offset=1)
     #
-    import os
-    import netCDF4 as netcdf
-    import numpy
     #
     # Outputs
     cfrac=-999.    # Cloud fraction
@@ -310,9 +313,6 @@ def get_netcdf_variable(fname,var_name,start_time,end_time=-10000.,ttol=3600.,st
     #    file='/ibrix/arch/ClimRes/aholaj/case_emulator_DESIGN_v1.4.0_LES_cray.dev20170324_LVL4/emul01/emul01.ts.nc'
     #    lmax=get_netcdf_variable(file,'lmax',3*3600,ttol=10)
     #    lmax=get_netcdf_variable(file,'lmax',2.5*3600,3.5*3600,ttol=10.,start_offset=1)
-    import os    
-    import numpy
-    import netCDF4 as netcdf
     #
     # File must exist
     if not os.path.lexists(fname): raise RuntimeError(fname+' not found!')
@@ -397,7 +397,6 @@ def GetEmu2Vars(path):
     # path='/arch/eclair/UCLALES-SALSA_training_simulations/case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3/'
     # data=GetEmu2Vars(path)
     #
-    import os
     #
     # Time window
     tstart=2.5*3600
@@ -503,10 +502,6 @@ def extract_write_data(fname_template,specs,name_out='',nmax=9999,skip_errs=Fals
     #    specs=['numpy.amax(numpy.amax(numpy.amax(l[2,:],axis=0),axis=0),axis=0)']
     #    aa=extract_write_data(fname_template,specs,name_out='tmp.dat')
     #
-    import os
-    import netCDF4 as netcdf
-    import numpy
-    import sys
     #
     # Function for converting command line commands to NetCDF format
     def interpret_fun(cmd):
