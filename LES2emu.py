@@ -38,6 +38,8 @@ import numpy
 
 import os
 import sys
+import pathlib
+
 def GetEmu1Vars(fname,tstart,tend,ttol=3600.,start_offset=0,end_offset=0):
     # Function calculates LES output variables for emulator v1.0 as defined in the ECLAIR proof-of-concept document
     #    https://docs.google.com/document/d/1L-YyJLhtmLYg4rJYo5biOW96eeRC7z_trZsow_8TbeE/edit
@@ -408,9 +410,12 @@ def GetEmu2Vars(path):
         fmt='/emul%03u/emul%03u'
     #
     # Examine the data files
-    out={"i":[],"cond":[],"sedi":[],"coag":[],"auto":[],"diag":[],
-         "prcp":[],"wpos":[],"w2pos":[],"cdnc_p":[],"cdnc_wp":[],"n":[],
-         "drflx":[], "m":[]}
+    print(path)
+    columnNames=["i","cond","sedi","coag","auto","diag",
+         "prcp","wpos","w2pos","cdnc_p","cdnc_wp","n",
+         "drflx", "m"]
+    
+    outDataFrame = pandas.DataFrame(columns = columnNames)
     i=1
     while True:
         # Data must exist
@@ -425,55 +430,60 @@ def GetEmu2Vars(path):
         #    - No need to ignore the first point when averaging instantaneous variables (rain processes and w calculated form 4D data,)
         #
         # Data file
+        fileCSV = pathlib.Path((path+fmt+'.response.csv')%(i,i))
+        
         file=(path+fmt+'.ts.nc')%(i,i)
-        # 1a) Rain water loss (evaporation + surface precipitation)
-        # Change in column rain water due to condensation (kg/m^2/s)
-        cond=get_netcdf_variable(file,'cond_rr',tstart,tend,ttol=10.)
-        # Change in column rain water due to sedimentation (kg/m^2/s)
-        sedi=get_netcdf_variable(file,'sedi_rr',tstart,tend,ttol=10.)
-        #
-        # 1b) Rain water production (not including divergence - with that the total production is the same as total loss)
-        # Change in column rain water due to coagulation (kg/m^2/s)
-        coag=get_netcdf_variable(file,'coag_rr',tstart,tend,ttol=10.)
-        # Change in column rain water due to autoconversion (kg/m^2/s)
-        auto=get_netcdf_variable(file,'auto_rr',tstart,tend,ttol=10.)
-        # Change in column rain water due to diagnostics (kg/m^2/s)
-        diag=get_netcdf_variable(file,'diag_rr',tstart,tend,ttol=10.)
-        #
-        # 2) Precipitation statistics (ignore the first point, which is an everage from the previous time period)
-        # Surface precipitation rate (W/m^2)
-        prcp=get_netcdf_variable(file,'prcp',tstart,tend,ttol=10.,start_offset=1)
-        # 1 W = J/s, which can be converted to mass flux by using latent heat of water (2.5e+6 J/kg)
-        prcp/=2.5e6 # kg/m^2/s
-        #
-        # 3) Cloud base positive updraft velocity (m/s)
-        file_4d=(path+fmt+'.nc') % (i,i)
-        wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file_4d,tstart,tend,ttol=10.)
-        #
         
-        out["i"].append(i)
-        out["cond"].append(cond)
-        out["sedi"].append(sedi)
-        out["coag"].append(coag)
-        out["auto"].append(auto)
-        out["diag"].append(diag)
-        out["prcp"].append(prcp)
-        out["wpos"].append(wpos)
-        out["w2pos"].append(w2pos)
-        out["cdnc_p"].append(cdnc_p)
-        out["cdnc_wp"].append(cdnc_wp)
-        out["n"].append(n)
-        out["drflx"].append(drflx)
-        out["m"].append(m)
+        if fileCSV.is_file():
+            newRow = pandas.read_csv(fileCSV, index_col = 0)
+            newRow = newRow.transpose()
+        else:
+            # 1a) Rain water loss (evaporation + surface precipitation)
+            # Change in column rain water due to condensation (kg/m^2/s)
+            cond=get_netcdf_variable(file,'cond_rr',tstart,tend,ttol=10.)
+            # Change in column rain water due to sedimentation (kg/m^2/s)
+            sedi=get_netcdf_variable(file,'sedi_rr',tstart,tend,ttol=10.)
+            #
+            # 1b) Rain water production (not including divergence - with that the total production is the same as total loss)
+            # Change in column rain water due to coagulation (kg/m^2/s)
+            coag=get_netcdf_variable(file,'coag_rr',tstart,tend,ttol=10.)
+            # Change in column rain water due to autoconversion (kg/m^2/s)
+            auto=get_netcdf_variable(file,'auto_rr',tstart,tend,ttol=10.)
+            # Change in column rain water due to diagnostics (kg/m^2/s)
+            diag=get_netcdf_variable(file,'diag_rr',tstart,tend,ttol=10.)
+            #
+            # 2) Precipitation statistics (ignore the first point, which is an everage from the previous time period)
+            # Surface precipitation rate (W/m^2)
+            prcp=get_netcdf_variable(file,'prcp',tstart,tend,ttol=10.,start_offset=1)
+            # 1 W = J/s, which can be converted to mass flux by using latent heat of water (2.5e+6 J/kg)
+            prcp/=2.5e6 # kg/m^2/s
+            #
+            # 3) Cloud base positive updraft velocity (m/s)
+            file_4d=(path+fmt+'.nc') % (i,i)
+            wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file_4d,tstart,tend,ttol=10.)
+            
+            newRow = pandas.Series(data={"i":i,"cond":cond,"sedi":sedi,"coag":coag,"auto":auto,"diag":diag,
+             "prcp":prcp,"wpos":wpos,"w2pos":w2pos,"cdnc_p":cdnc_p,"cdnc_wp":cdnc_wp,"n":n,
+             "drflx":drflx, "m":m})
+            
+            newRow.to_csv(fileCSV)
+            
         
-        #
-        if i==1: print ('id        cond        sedi       coag       auto       diag       prcp    wpos   w2pos      cdnc_p     cdnc_wp        n')
-        print ('%2g  %8.3e  %8.3e  %8.3e  %8.3e  %8.3e  %8.3e  %6.4f  %6.4f  %7.3e  %7.3e  %7g' % (i,cond,sedi,coag,auto,diag,prcp,wpos,w2pos,cdnc_p,cdnc_wp,n))
-        #
+        outDataFrame = outDataFrame.append(newRow, ignore_index=True )
+        
+
+        if i==1:
+            for columnName in outDataFrame.columns:
+                print(f"{columnName:>10}", end = "")
+            print()
+        
+        for ind, rowValue in enumerate(outDataFrame.iloc[-1].values):
+            print(f"{rowValue:10.2}", end="")
+        print()
+            
         i+=1
-    columns = [key  for key in list(out) if key != "i"]
-    out_dataframe = pandas.dataframe(out, columns = columns)
-    return out_dataframe
+
+    return outDataFrame
 
 
 def extract_write_data(fname_template,specs,name_out='',nmax=9999,skip_errs=False):
