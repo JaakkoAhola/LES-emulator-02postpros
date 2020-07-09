@@ -6,6 +6,7 @@ Created on Wed Feb  5 17:31:36 2020
 @author: Jaakko Ahola, Finnish Meteorological Institute
 @licence: MIT licence Copyright
 """
+import copy
 import numpy
 import pandas
 import pathlib
@@ -47,7 +48,26 @@ class EmulatorData:
         self._main()
         
     def _main(self):
-        pass
+        self.__init__copyDesignToPostProsFolder()
+        
+        self.__init__getDesign()
+        
+        self.__init__getResponseFromTrainingSimulations()
+        
+        self.__init__setSimulationCompleteDataFromDesignAndTraining()
+        
+        self.__init__filterNan()
+        self.__init__saveFilteredData()
+        
+        self.__init__setResponseIndicatorFilteredData()
+        
+        self.__init__saveFilteredDataFortranMode()
+        
+        self.__init__saveOmittedData()
+        
+        self.__init__saveNamelists()
+        
+        self.__init__linkExecutables()
         
     def _makeFolder(self, folder):
         folder.mkdir( parents=True, exist_ok = True )
@@ -65,11 +85,10 @@ class EmulatorData:
         
         return returnValue
         
-    def getDesign(self):
-        if not hasattr(self, "design"):
-            self.design = pandas.read_csv(self.designCSVFile, index_col=0)
+    def __init__getDesign(self):
+        self.design = pandas.read_csv(self.designCSVFile)
+        self.design.rename(columns={'Unnamed: 0': 'designCase'}, inplace=True)
         
-        return self.design
        
     
     def getSimulationFilteredData(self):
@@ -79,27 +98,29 @@ class EmulatorData:
             self.simulationFilteredData = pandas.read_csv( self.filteredCSVFile )
             return self.simulationFilteredData
     
-    def copyDesignToPostProsFolder(self):
+    def __init__copyDesignToPostProsFolder(self):
         if not pathlib.Path( self.designCSVFile).is_file():
             copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
     
-    def getResponseFromTrainingSimulations(self):
+    def __init__getResponseFromTrainingSimulations(self):
         
         if pathlib.Path( self.responseFromTrainingSimulationsCSVFile).is_file():
-             self.responseFromTrainingSimulations = pandas.read(self.responseFromTrainingSimulationsCSVFile, index_col=0)
+             self.responseFromTrainingSimulations = pandas.read_csv(self.responseFromTrainingSimulationsCSVFile, index_col=0)
         else:
              self.responseFromTrainingSimulations = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder) )
         
+        self.responseFromTrainingSimulations.to_csv(self.responseFromTrainingSimulationsCSVFile)
+        
         return self.responseFromTrainingSimulations
 
-    def saveFilteredData(self):
+    def __init__saveFilteredData(self):
         self.simulationFilteredData.to_csv( self.filteredCSVFile )
 
     
     def setResponseIndicatorCompleteData(self):
         self.simulationCompleteData = self._setResponseIndicator( self.simulationCompleteData )
         
-    def setResponseIndicatorFilteredData(self):
+    def __init__setResponseIndicatorFilteredData(self):
         self.simulationFilteredData = self._setResponseIndicator( self.simulationFilteredData )
     
     def _setResponseIndicator(self, data):
@@ -107,11 +128,11 @@ class EmulatorData:
         
         return data
     
-    def saveFilteredDataFortranMode(self):
+    def __init__saveFilteredDataFortranMode(self):
         #
         self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
     
-    def saveOmittedData(self):
+    def __init__saveOmittedData(self):
         
         self.simulationFilteredData = self.simulationFilteredData.set_index( numpy.arange( self.simulationFilteredData.shape[0] ) )
         
@@ -125,7 +146,7 @@ class EmulatorData:
             predict = self.simulationFilteredData.iloc[ind].values
             numpy.savetxt( folder / "DATA_predict", predict, fmt="%017.11e", newline = " ")
             
-    def saveNamelists(self):
+    def __init__saveNamelists(self):
         trainNML = {"inputoutput":
                     {"trainingDataInputFile":"DATA_train",
                      "trainedEmulatorGPFile" :"out.gp",
@@ -150,7 +171,7 @@ class EmulatorData:
                 f90nml.write(predictNML, predictNMLFile)
                 
                 
-    def linkExecutables(self):
+    def __init__linkExecutables(self):
         for ind in range(self._getFilteredSize()):
             folder = (self.fortranDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
@@ -247,16 +268,15 @@ class EmulatorData:
                                              sep = ",", index = False )
         
     
-    def setSimulationCompleteDataFromDesignAndTraining(self):
+    def __init__setSimulationCompleteDataFromDesignAndTraining(self):
         
-        self.simulationCompleteData = self.getDesign()
+        self.simulationCompleteData = copy.deepcopy(self.design)
         
-        response = self.getResponseFromTrainingSimulations()
+        self.simulationCompleteData[ self.responseVariable ] = self.responseFromTrainingSimulations[self.responseVariable]
         
         
-        self.simulationCompleteData[ self.responseVariable ] = response[self.responseVariable]
         
-    def filterNan(self):
+    def __init__filterNan(self):
         
         self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.responseVariable ] != self.filterValue ]
         
@@ -299,26 +319,7 @@ def main(responseVariable):
                 }
     
     for key in emulatorSets:
-        
-        emulatorSets[key].copyDesignToPostProsFolder()
-        
-        emulatorSets[key].getResponseFromTrainingSimulations()
-        
-        # emulatorSets[key].setSimulationCompleteDataFromDesignAndTraining()
-        
-        # emulatorSets[key].filterNan()
-        # emulatorSets[key].saveFilteredData()
-        
-        # emulatorSets[key].setResponseIndicatorFilteredData()
-        
-        # emulatorSets[key].saveFilteredDataFortranMode()
-        
-        # emulatorSets[key].saveOmittedData()
-        
-        # emulatorSets[key].saveNamelists()
-        
-        # emulatorSets[key].linkExecutables()
-        
+        pass
         # emulatorSets[key].runTrain()
         
         # emulatorSets[key].runPredictionSerial()
