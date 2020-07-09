@@ -286,6 +286,14 @@ def get_netcdf_updraft(fname,tstart,tend,ttol=3600.,tol_clw=1e-5):
         if cdnc_calc:
             cdnc_p/=n
             cdnc_wp/=(wpos*n)
+        else:
+            cdnc_p=-999.
+            cdnc_wp=-999.
+    else:
+        wpos=-999.
+        w2pos=-999.
+        cdnc_p=-999.
+        cdnc_wp=-999.
     if rflx_calc and m>0:
         drflx=drflx/m
     #
@@ -482,7 +490,8 @@ def GetEmu2Vars(path):
         print()
             
         i+=1
-
+    outDataFrame["i"] = outDataFrame["i"].apply(int)
+    outDataFrame = outDataFrame.set_index("i")
     return outDataFrame
 
 

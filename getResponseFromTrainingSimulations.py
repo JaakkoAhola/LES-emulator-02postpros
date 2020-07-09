@@ -57,6 +57,7 @@ class EmulatorData:
         self.__init__setSimulationCompleteDataFromDesignAndTraining()
         
         self.__init__filterNan()
+        
         self.__init__saveFilteredData()
         
         self.__init__setResponseIndicatorFilteredData()
@@ -86,8 +87,8 @@ class EmulatorData:
         return returnValue
         
     def __init__getDesign(self):
-        self.design = pandas.read_csv(self.designCSVFile)
-        self.design.rename(columns={'Unnamed: 0': 'designCase'}, inplace=True)
+        self.design = pandas.read_csv(self.designCSVFile, index_col=0)
+
         
        
     
