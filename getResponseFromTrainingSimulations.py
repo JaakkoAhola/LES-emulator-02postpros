@@ -294,7 +294,7 @@ class EmulatorData:
 def main(responseVariable):
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData/prcp"
+    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
    
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
