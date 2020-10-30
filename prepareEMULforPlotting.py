@@ -6,6 +6,7 @@ Created on Thu Jan 23 14:41:12 2020
 @author: Jaakko Ahola, Finnish Meteorological Institute
 @licence: MIT licence Copyright
 """
+import os
 import pandas
 import pathlib
 import time
@@ -78,7 +79,7 @@ def prepareEMULData():
     
     
     
-    csvFolder = "/home/aholaj/OneDrive/000_WORK/000_ARTIKKELIT/001_Manuscript_LES_emulator/data"
+    csvFolder = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
     for case in list(simulationData):
         simulationData[case].saveDataFrameAsCSV(csvFolder, case + ".csv")
 #    manuscriptSimulationData.saveDataFrameAsCSV(folder, "manuscriptSimulationData.csv")
