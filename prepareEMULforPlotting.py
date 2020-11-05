@@ -16,7 +16,7 @@ from Colorful import Colorful
 def changeToStringList(array):
     return list(map(str, array))
 
-sys.path.append("/home/aholaj/OneDrive/000_WORK/000_Codex/LES-scripting/emulatorScripts/")
+sys.path.append("../LES-emulator-01prepros")
 import ECLAIR_calcs
 
 def prepareEMULData():
@@ -79,10 +79,9 @@ def prepareEMULData():
     
     
     
-    csvFolder = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    csvFolder = "/home/aholaj/Data/EmulatorManuscriptData2" #os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
     for case in list(simulationData):
-        simulationData[case].saveDataFrameAsCSV(csvFolder, case + ".csv")
-#    manuscriptSimulationData.saveDataFrameAsCSV(folder, "manuscriptSimulationData.csv")
+        simulationData[case].saveDataFrameAsCSV(csvFolder +"/" + case, case + "_phase01.csv")
 
 def main():
     prepareEMULData()
