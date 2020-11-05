@@ -20,47 +20,52 @@ import multiprocessing
 import functools
 from shutil import copyfile
 
+sys.path.append("../LES-03plotting")
+from Data import Data
+from InputSimulation import InputSimulation
+
 class EmulatorData:
     def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : str, responseVariable : str, filterValue = -999, responseIndicator = 0):
         self.name = name
+        
+        self.ID_prefix = name[3:5]
+        
         self.trainingSimulationRootFolder = pathlib.Path( "/".join(trainingSimulationRootFolder) )
         
         self.dataOutputFolder = pathlib.Path(dataOutputRootFolder) / self.name
-        self._makeFolder(self.dataOutputFolder)
         
         self.responseVariable = responseVariable
         
-        
-        self.designCSVFile = self.dataOutputFolder / (self.name + "_design.csv")
+        self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
         self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
-        self.filteredCSVFile = self.dataOutputFolder / (self.name + "_" + self.responseVariable +  "_filtered.csv")
         
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
         
         self.filterValue = filterValue
+        
+        self.responseIndicatorVariable = "responseIndicator"
         self.responseIndicator = responseIndicator
         
         self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
-        self._makeFolder(self.fortranDataFolder)
         
         self.numCores = multiprocessing.cpu_count()
         
+        self._makeFolder(self.dataOutputFolder)
+        self._makeFolder(self.fortranDataFolder)
         self._main()
         
     def _main(self):
-        self.__init__copyDesignToPostProsFolder()
+        self.__init__getPhase01()
         
-        self.__init__getDesign()
+        self.__init__getDesignVariableNames()
         
         self.__init__getResponseFromTrainingSimulations()
         
         self.__init__setSimulationCompleteDataFromDesignAndTraining()
         
-        self.__init__filterNan()
-        
-        self.__init__saveFilteredData()
-        
         self.__init__setResponseIndicatorFilteredData()
+        
+        self.__init__filterNan()
         
         self.__init__saveFilteredDataFortranMode()
         
@@ -70,102 +75,105 @@ class EmulatorData:
         
         self.__init__linkExecutables()
         
+        self.runTrain()
+        
+        self.runPredictionSerial()
+        
+        self.collectSimulatedVSPredictedData()
+        
+        self.getSimulationCollection()
+        
+        self.finalise()
+        
     def _makeFolder(self, folder):
         folder.mkdir( parents=True, exist_ok = True )
+        
+    def __init__getPhase01(self):
+        self.phase01 = pandas.read_csv(self.phase01CSVFile, index_col=0)
     
-    def _getFilteredSize(self):
+    def __init__getDesignVariableNames(self):
+        self.meteorologicalVariables = ["q_inv", "tpot_inv", "lwp", "tpot_pbl", "pblh"]
         
-        try:
-            returnValue = self.simulationFilteredData.shape[0]
-        except AttributeError:
-            try:
-                pathGlob = self.fortranDataFolder.glob("**/*")
-                returnValue = len([x for x in pathGlob if x.is_dir()])
-            except:
-                sys.exit("_getFilteredSize not working")
+        self.microphysics = self.ID_prefix[0]
         
-        return returnValue
+        self.timeOfDay = self.ID_prefix[1]
         
-    def __init__getDesign(self):
-        self.design = pandas.read_csv(self.designCSVFile, index_col=0)
-
+        if self.microphysics == "3":
+            self.microphysicsVariables = ["cdnc"]
+        elif self.microphysics == "4":
+            self.microphysicsVariables = ["ks", "as", "cs", "rdry_AS_eff"]
         
-       
-    
-    def getSimulationFilteredData(self):
-        try:
-            return self.simulationFilteredData
-        except AttributeError:
-            self.simulationFilteredData = pandas.read_csv( self.filteredCSVFile )
-            return self.simulationFilteredData
-    
-    def __init__copyDesignToPostProsFolder(self):
-        if not pathlib.Path( self.designCSVFile).is_file():
-            copyfile(self.trainingSimulationRootFolder / "design.csv" ,  self.designCSVFile)
+        if self.timeOfDay == "D":
+            self.timeOfDayVariable = ["cos_mu"]
+        else:
+            self.timeOfDayVariable = []
+            
+        self.designVariableNames = self.meteorologicalVariables + self.microphysicsVariables + self.timeOfDayVariable
     
     def __init__getResponseFromTrainingSimulations(self):
         
         if pathlib.Path( self.responseFromTrainingSimulationsCSVFile).is_file():
              self.responseFromTrainingSimulations = pandas.read_csv(self.responseFromTrainingSimulationsCSVFile, index_col=0)
         else:
-             self.responseFromTrainingSimulations = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder) )
+             self.responseFromTrainingSimulations = LES2emu.GetEmu2Vars( str(self.trainingSimulationRootFolder), self.ID_prefix )
         
         self.responseFromTrainingSimulations.to_csv(self.responseFromTrainingSimulationsCSVFile)
         
         return self.responseFromTrainingSimulations
-
-    def __init__saveFilteredData(self):
-        self.simulationFilteredData.to_csv( self.filteredCSVFile )
-
     
-    def setResponseIndicatorCompleteData(self):
-        self.simulationCompleteData = self._setResponseIndicator( self.simulationCompleteData )
+    def __init__setSimulationCompleteDataFromDesignAndTraining(self):
+        
+        self.simulationCompleteData = pandas.merge(self.phase01, self.responseFromTrainingSimulations,on = "ID", how="left")
         
     def __init__setResponseIndicatorFilteredData(self):
-        self.simulationFilteredData = self._setResponseIndicator( self.simulationFilteredData )
-    
-    def _setResponseIndicator(self, data):
-        data.insert( loc = len(data.columns) - 1, column = "responseIndicator", value = ( numpy.ones( data.shape[0] ) * self.responseIndicator).astype( numpy.float ))
+        self.simulationCompleteData[self.responseIndicatorVariable] = float(self.responseIndicator)        
+
+    def __init__filterNan(self):
         
-        return data
-    
+        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.responseVariable ] != self.filterValue ]
+        
+        self.simulationFilteredData = self.simulationFilteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
+        
     def __init__saveFilteredDataFortranMode(self):
-        #
+        
         self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
     
     def __init__saveOmittedData(self):
         
-        self.simulationFilteredData = self.simulationFilteredData.set_index( numpy.arange( self.simulationFilteredData.shape[0] ) )
+        #self.simulationFilteredData = self.simulationFilteredData.set_index( numpy.arange( self.simulationFilteredData.shape[0] ) )
         
-        for ind in range(self.simulationFilteredData.shape[0]):
+        for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             
-            train = self.simulationFilteredData.drop(ind, axis = 0)
-            train.to_csv( folder / "DATA_train", float_format="%017.11e", sep = " ", header = False, index = False )
+            train = self.simulationFilteredData.drop(ind)
+            train.to_csv( folder / ("DATA_train_" + ind ), float_format="%017.11e", sep = " ", header = False, index = False )
             
-            predict = self.simulationFilteredData.iloc[ind].values
-            numpy.savetxt( folder / "DATA_predict", predict, fmt="%017.11e", newline = " ")
+            predict = self.simulationFilteredData.loc[ind].values
+            numpy.savetxt( folder / ("DATA_predict_" + ind), predict, fmt="%017.11e", newline = " ")
             
     def __init__saveNamelists(self):
-        trainNML = {"inputoutput":
-                    {"trainingDataInputFile":"DATA_train",
-                     "trainedEmulatorGPFile" :"out.gp",
+        
+        
+        
+        for ind in self.simulationFilteredData.index:
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            
+            trainNML = {"inputoutput":
+                    {"trainingDataInputFile":"DATA_train_" + ind,
+                     "trainedEmulatorGPFile" :"out_" + ind + ".gp",
                      "separator": " ",
                      "debugFlag": False}}
             
-        predictNML = {"inputoutput":
-                      {"trainingDataInputFile":"DATA_train",
-	                   "trainedEmulatorGPFile":"out.gp",
-	                   "predictionDataInputFile":"DATA_predict",
-	                   "predictionOutputFile":"DATA_predict_output",
+            predictNML = {"inputoutput":
+                      {"trainingDataInputFile":"DATA_train_" + ind,
+	                   "trainedEmulatorGPFile":"out_" + ind + ".gp",
+	                   "predictionDataInputFile":"DATA_predict_" + ind,
+	                   "predictionOutputFile":"DATA_predict_output_" + ind,
 	                   "separator":" ",
 	                   "debugFlag":False}}
-        
-        
-        for ind in range(self._getFilteredSize()):
-            folder = (self.fortranDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
+            
             with open(folder / "train.nml", mode="w") as trainNMLFile:
                 f90nml.write(trainNML, trainNMLFile)
             with open(folder / "predict.nml", mode="w") as predictNMLFile:
@@ -173,7 +181,7 @@ class EmulatorData:
                 
                 
     def __init__linkExecutables(self):
-        for ind in range(self._getFilteredSize()):
+        for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
@@ -188,15 +196,14 @@ class EmulatorData:
         print(self.name,"checking training output, case", ind)
         os.chdir(folder)
         
-        if not pathlib.Path("out.gp").is_file():
+        if not pathlib.Path("out_" + ind + ".gp").is_file():
             print("runTrain", folder)
             run([ "./gp_train"])
     
     def runTrain(self):
         
          
-        indexGroup = range(self._getFilteredSize())
-        # partialSelf = functools.partial(self._runTrain)
+        indexGroup = self.simulationFilteredData.index.values
         try:
             pool = multiprocessing.Pool(processes = self.numCores)
             for ind in pool.imap_unordered( self._runTrain, indexGroup):
@@ -211,12 +218,12 @@ class EmulatorData:
         print(" ")
         print(self.name, "checking prediction output, case", ind)
         os.chdir(folder)
-        outputfile = pathlib.Path("DATA_predict_output")
+        outputfile = pathlib.Path("DATA_predict_output_" + ind)
         
         fileExists = outputfile.is_file()
         
         if fileExists:
-            fileIsEmpty = numpy.isnan(self._readPredictedData("."))
+            fileIsEmpty = numpy.isnan(self._readPredictedData(".", ind))
             if fileIsEmpty:
                 outputfile.unlink() #remove file
             
@@ -226,7 +233,7 @@ class EmulatorData:
     
     def runPredictionParallel(self):
         
-        indexGroup = range(self._getFilteredSize())
+        indexGroup = self.simulationFilteredData.index.values
         
         try:
             pool = multiprocessing.Pool(processes = self.numCores)
@@ -238,7 +245,7 @@ class EmulatorData:
         pool.close()
         
     def runPredictionSerial(self):
-        for ind in range(self._getFilteredSize()):
+        for ind in self.simulationFilteredData.index.values:
             self._runPrediction(ind)
         
             
@@ -246,55 +253,62 @@ class EmulatorData:
         datadict = {self.responseVariable + "_Simulated": [],
                     self.responseVariable + "_Emulated": []}
         
-        self.simulatedVSPredictedData = self.getSimulationFilteredData()
-        
-        for ind in range(self._getFilteredSize()):
+        for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
             
-            simulated = pandas.read_csv( folder / "DATA_predict", delim_whitespace = True, header = None).iloc[0,-1]
-            emulated  = self._readPredictedData(folder)
+            simulated = pandas.read_csv( folder / ("DATA_predict_" + ind), delim_whitespace = True, header = None).iloc[0,-1]
+            emulated  = self._readPredictedData(folder, ind)
             
 
             datadict[self.responseVariable + "_Simulated"].append(simulated)
             datadict[self.responseVariable + "_Emulated"].append(emulated)
         
         
+        
         for key in datadict:
             
-            self.simulatedVSPredictedData[key] = datadict[key]
+            self.simulationFilteredData[key] = datadict[key]
         
-        self.simulatedVSPredictedData.rename(columns={'Unnamed: 0': 'designCase'}, inplace=True)
+        self._checkIntegrety()
         
-        self.simulatedVSPredictedData.to_csv( self.dataOutputFolder / (self.name + "_simulatedVSPredictedData.csv"),
-                                             sep = ",", index = False )
+        self.simulationFilteredData.drop(columns = self.responseIndicatorVariable, inplace = True)
+        self.simulationCompleteData.drop(columns = self.responseIndicatorVariable, inplace = True)
         
+        if self.allIsWell:
+            self.simulationFilteredData.drop(columns = self.responseVariable + "_Simulated", inplace = True )
+        
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", "wpos"] + self.designVariableNames, how = "left")
+        
+        
+
     
-    def __init__setSimulationCompleteDataFromDesignAndTraining(self):
-        
-        self.simulationCompleteData = copy.deepcopy(self.design)
-        
-        self.simulationCompleteData[ self.responseVariable ] = self.responseFromTrainingSimulations[self.responseVariable]
-        
-        
-        
-    def __init__filterNan(self):
-        
-        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.responseVariable ] != self.filterValue ]
-        
-    def _readPredictedData(self, folder):
+    def _readPredictedData(self, folder, ind):
         try:
-            data = pandas.read_csv( pathlib.Path(folder) / "DATA_predict_output", delim_whitespace = True, header = None).iloc[0,0]
+            data = pandas.read_csv( pathlib.Path(folder) / ("DATA_predict_output_" + ind), delim_whitespace = True, header = None).iloc[0,0]
         except pandas.errors.EmptyDataError:
             data = numpy.nan
         return data
     
-    
-        
+    def _checkIntegrety(self):
+        self.allIsWell = True
+        for ind in self.simulationFilteredData.index:
+            relativeError = numpy.abs( (self.simulationFilteredData.loc[ind][self.responseVariable] - self.simulationFilteredData.loc[ind][self.responseVariable + "_Simulated"]) 
+                      / self.simulationFilteredData.loc[ind][self.responseVariable]) * 100.
+            if relativeError > 0.1:
+                print("case", ind, "relative error", relativeError)
+                self.allIsWell = False
+                
+    def getSimulationCollection(self):
+        self.simulationCollection = InputSimulation.getSimulationCollection( self.simulationCompleteData )
+
+    def finalise(self):
+        self.simulationCompleteData.to_csv(self.dataOutputFolder / (self.name + "_complete.csv"))                
+            
     
 def main(responseVariable):
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData2"# os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
    
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -313,19 +327,16 @@ def main(responseVariable):
                                             responseVariable
                                             ),
                 "LVL4Day"   : EmulatorData("LVL4Day",
-                                           [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
-                                           rootFolderOfDataOutputs,
-                                           responseVariable
-                                           )
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
+                                            rootFolderOfDataOutputs,
+                                            responseVariable
+                                            )
                 }
-    
-    for key in emulatorSets:
-        pass
         # emulatorSets[key].runTrain()
         
         # emulatorSets[key].runPredictionSerial()
         
-        # emulatorSets[key].collectSimulatedVSPredictedData()
+        emulatorSets[key].collectSimulatedVSPredictedData()
     
     
 if __name__ == "__main__":
