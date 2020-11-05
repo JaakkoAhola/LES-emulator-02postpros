@@ -394,7 +394,7 @@ def get_netcdf_variable(fname,var_name,start_time,end_time=-10000.,ttol=3600.,st
     return out
 
 
-def GetEmu2Vars(path):
+def GetEmu2Vars(path, prefix):
     # Function calculates LES output variables for emulator v2.0 as defined in the ECLAIR proof-of-concept document
     #    https://docs.google.com/document/d/1L-YyJLhtmLYg4rJYo5biOW96eeRC7z_trZsow_8TbeE/edit
     #
@@ -419,7 +419,7 @@ def GetEmu2Vars(path):
     #
     # Examine the data files
     print(path)
-    columnNames=["i","cond","sedi","coag","auto","diag",
+    columnNames=["ID","cond","sedi","coag","auto","diag",
          "prcp","wpos","w2pos","cdnc_p","cdnc_wp","n",
          "drflx", "m"]
     
@@ -444,7 +444,7 @@ def GetEmu2Vars(path):
         
         if fileCSV.is_file():
             newRow = pandas.read_csv(fileCSV, index_col = 0)
-            newRow = newRow.transpose()
+            #newRow = newRow.transpose()
         else:
             # 1a) Rain water loss (evaporation + surface precipitation)
             # Change in column rain water due to condensation (kg/m^2/s)
@@ -470,14 +470,16 @@ def GetEmu2Vars(path):
             file_4d=(path+fmt+'.nc') % (i,i)
             wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file_4d,tstart,tend,ttol=10.)
             
-            newRow = pandas.Series(data={"i":i,"cond":cond,"sedi":sedi,"coag":coag,"auto":auto,"diag":diag,
+            newRow = pandas.DataFrame(data={"ID": prefix + "_" + str(i).zfill(3), "cond":cond,"sedi":sedi,"coag":coag,"auto":auto,"diag":diag,
              "prcp":prcp,"wpos":wpos,"w2pos":w2pos,"cdnc_p":cdnc_p,"cdnc_wp":cdnc_wp,"n":n,
-             "drflx":drflx, "m":m})
+             "drflx":drflx, "m":m}, index = {"i":i})
             
-            newRow.to_csv(fileCSV)
+            # newRow = newRow.transpose()
+            newRow.to_csv(fileCSV, index=False)
             
         
         outDataFrame = outDataFrame.append(newRow, ignore_index=True )
+        
         
 
         if i==1:
@@ -486,12 +488,14 @@ def GetEmu2Vars(path):
             print()
         
         for ind, rowValue in enumerate(outDataFrame.iloc[-1].values):
-            print(f"{rowValue:10.2}", end="")
+            if isinstance(rowValue, float):
+                print(f"{rowValue:10.2}", end="")
+            else:
+                print(f"{rowValue:10}", end="")
         print()
             
         i+=1
-    outDataFrame["i"] = outDataFrame["i"].apply(int)
-    outDataFrame = outDataFrame.set_index("i")
+    outDataFrame = outDataFrame.set_index("ID")
     return outDataFrame
 
 
