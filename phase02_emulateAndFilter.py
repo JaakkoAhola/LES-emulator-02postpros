@@ -7,12 +7,14 @@ Created on Wed Feb  5 17:31:36 2020
 @licence: MIT licence Copyright
 """
 import copy
+import math
 import numpy
 import pandas
 import pathlib
 import time
 import os
 import sys
+import scipy
 import LES2emu
 import f90nml
 from subprocess import run
@@ -32,12 +34,17 @@ class EmulatorData:
         
         self.trainingSimulationRootFolder = pathlib.Path( "/".join(trainingSimulationRootFolder) )
         
-        self.dataOutputFolder = pathlib.Path(dataOutputRootFolder) / self.name
+        self.dataOutputRootFolder = pathlib.Path(dataOutputRootFolder)
+        
+        self.dataOutputFolder = self.dataOutputRootFolder / self.name
         
         self.responseVariable = responseVariable
         
         self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
         self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
+        
+        self.completeFile = self.dataOutputFolder / (self.name + "_complete.csv")
+        self.statsFile = self.dataOutputFolder / (self.name + "_stats.csv")
         
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
         
@@ -49,6 +56,11 @@ class EmulatorData:
         self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
         
         self.numCores = multiprocessing.cpu_count()
+        
+        self.anomalyLimitLow = {}
+        self.anomalyLimitHigh = {}
+        self.anomalyQuantile = 0.02
+
         
         self._makeFolder(self.dataOutputFolder)
         self._makeFolder(self.fortranDataFolder)
@@ -69,19 +81,34 @@ class EmulatorData:
         
         self.__init__saveFilteredDataFortranMode()
         
-        self.__init__saveOmittedData()
+        # self.__init__saveOmittedData()
         
-        self.__init__saveNamelists()
+        # self.__init__saveNamelists()
         
-        self.__init__linkExecutables()
+        # self.__init__linkExecutables()
         
-        self.runTrain()
+        # self.runTrain()
         
-        self.runPredictionSerial()
+        # self.runPredictionSerial()
         
         self.collectSimulatedVSPredictedData()
         
-        self.getSimulationCollection()
+        self._getSimulationCollection()
+        
+        self._filterGetOutlierDataFromLESoutput()
+        
+        self._fillUpDrflxValues()
+        
+        self._getAnomalyLimitsQuantile()
+        self._getAnomalyLimitsConstant()
+        
+        self._getAnomalies()
+        
+        self._getLeaveOneOut()
+        self._getLinearFit()
+        
+        self._finaliseStats()
+        self._finaliseAnomalies()
         
         self.finalise()
         
@@ -192,8 +219,6 @@ class EmulatorData:
     def _runTrain(self, ind):
         
         folder = (self.fortranDataFolder / str(ind) )
-        print(" ")
-        print(self.name,"checking training output, case", ind)
         os.chdir(folder)
         
         if not pathlib.Path("out_" + ind + ".gp").is_file():
@@ -215,8 +240,6 @@ class EmulatorData:
     
     def _runPrediction(self,ind):
         folder = (self.fortranDataFolder / str(ind) )
-        print(" ")
-        print(self.name, "checking prediction output, case", ind)
         os.chdir(folder)
         outputfile = pathlib.Path("DATA_predict_output_" + ind)
         
@@ -298,11 +321,196 @@ class EmulatorData:
                 print("case", ind, "relative error", relativeError)
                 self.allIsWell = False
                 
-    def getSimulationCollection(self):
+    def _getSimulationCollection(self):
         self.simulationCollection = InputSimulation.getSimulationCollection( self.simulationCompleteData )
+        
+    def _filterGetOutlierDataFromLESoutput(self):
+    
+        dataframe = self.simulationCompleteData
+        collection = self.simulationCollection
+        
+        dataframe["lwpEndValue"] = dataframe.apply( lambda row: \
+                                                   collection[ row["LABEL"] ].getTSDataset()["lwp_bar"].values[-1]*1000.,
+                                                   axis = 1)
+        
+        dataframe["lwpRelativeChange"] = dataframe.apply( lambda row:\
+                                                         row["lwpEndValue"] / row["lwp"],
+                                                         axis = 1 )
+          
+        dataframe["cloudTopRelativeChange"] = dataframe.apply( lambda row: \
+                                                              collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1] / row["pblh_m"],
+                                                              axis = 1)
+
+        dataframe["cfracEndValue"] = dataframe.apply( lambda row: \
+                                                     collection[ row["LABEL"] ].getTSDataset()["cfrac"].values[-1],
+                                                     axis = 1)
+            
+    def _getAnomalyLimitsConstant(self):
+        self.anomalyLimitLow["tpot_inv"] = 2.5
+        self.anomalyLimitHigh["cloudTopRelativeChange"] = 1.1
+        self.anomalyLimitHigh["lwpRelativeChange"] = 1.4
+        
+        self.anomalyLimitLow["tpot_pbl"] = 273
+        self.anomalyLimitHigh["tpot_pbl"] =  300    
+        
+        
+        
+        if self.name[4:] == "Day":
+            self.anomalyLimitLow["cos_mu"] =  math.cos(5*math.pi/12)
+            self.anomalyLimitHigh["cos_mu"] =  math.cos(math.pi/12)
+        else:
+            self.anomalyLimitLow["cos_mu"] = 0
+            self.anomalyLimitHigh["cos_mu"] = 0
+    
+    def _getAnomalyLimitsQuantile(self):
+        dataframe = self.simulationCompleteData
+        
+        self.anomalyLimitLow["tpot_inv"] = dataframe["tpot_inv"].quantile(self.anomalyQuantile)
+        self.anomalyLimitHigh["cloudTopRelativeChange"] = dataframe["cloudTopRelativeChange"].quantile(1-self.anomalyQuantile)
+        self.anomalyLimitHigh["lwpRelativeChange"] = dataframe["lwpRelativeChange"].quantile(1-self.anomalyQuantile)
+        self.anomalyLimitLow["q_inv"] = dataframe["q_inv"].quantile(self.anomalyQuantile)
+        
+        self.anomalyLimitLow["pblh"] =  dataframe["pblh"].quantile(0.05)
+        self.anomalyLimitHigh["pblh"] = dataframe["pblh"].quantile(0.95)
+        
+        self.anomalyLimitLow["lwp"] =  dataframe["lwp"].quantile(0.05)
+        self.anomalyLimitHigh["lwp"] =  dataframe["lwp"].quantile(0.95)
+        
+        if self.name[3] == "3":
+            self.anomalyLimitLow["cdnc"] = dataframe["cdnc"].quantile(0.05)
+            self.anomalyLimitHigh["cdnc"] = dataframe["cdnc"].quantile(0.95)
+            
+        
+    def _getAnomalies(self):
+        dataframe = self.simulationCompleteData
+        
+        for key in self.anomalyLimitLow:
+            try:
+                dataframe[key + "_low_tail"] = dataframe[key] < self.anomalyLimitLow[key]
+            except KeyError:
+                pass
+        for key in self.anomalyLimitHigh:
+            try:
+                dataframe[key + "_high_tail"] = dataframe[key] > self.anomalyLimitHigh[key]
+            except KeyError:
+                pass
+    
+    def _finaliseAnomalies(self):
+        low = pandas.DataFrame(self.anomalyLimitLow, index = ["low"]).transpose()
+        high = pandas.DataFrame(self.anomalyLimitHigh, index = ["high"]).transpose()
+        
+        self.anomalyLimitsCombined = pandas.concat([low,high], axis = 1, verify_integrity=True)
+        
+        self.anomalyLimitsCombined.to_csv(self.dataOutputRootFolder / "anomalyLimits.csv")
+        
+    
+    def _fillUpDrflxValues(self):
+        
+        if self.ID_prefix == "3":
+            return
+        
+        dataframe = self.simulationCompleteData
+        
+        if numpy.abs(dataframe["drflx"].max() - dataframe["drflx"].min() ) > 10*Data.getEpsilon(): 
+            return
+        
+        newCloudRadiativeValues = numpy.zeros(numpy.shape(dataframe["drflx"]))
+            
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            self.simulationCollection[emul].getPSDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+            
+            tstart = 2.5
+            tend = 3.5
+            tol_clw = 1e-5
+            
+            psDataTimeSliced = self.simulationCollection[emul].sliceByTimePSDataset(tstart, tend)
+            
+            numberOfCloudyColumns = 0
+            
+            cloudRadiativeWarmingAllColumnValues = 0.
+            
+            for timeInd, timeValue in enumerate(psDataTimeSliced["time"]):
+                rflxTimeSlice = psDataTimeSliced["rflx"].isel( time = timeInd )
+                
+                liquidWaterTimeSlice = psDataTimeSliced["l"].isel( time = timeInd )
+                
+                psDataCloudyPointIndexes, = numpy.where( liquidWaterTimeSlice > tol_clw )
+                if len(psDataCloudyPointIndexes > 0):
+                    numberOfCloudyColumns += 1
+                    
+                    firstCloudyGridCell = psDataCloudyPointIndexes[0]
+                    lastCloudyGridCell = psDataCloudyPointIndexes[-1]   
+                    
+                
+                    cloudRadiativeWarmingAllColumnValues += rflxTimeSlice[firstCloudyGridCell] - rflxTimeSlice[lastCloudyGridCell]
+                    
+            ## end time for loop
+            if numberOfCloudyColumns > 0:
+                drflx = cloudRadiativeWarmingAllColumnValues.values / numberOfCloudyColumns
+            else:
+                drflx = 0.
+            
+            newCloudRadiativeValues[emulInd] = drflx
+            
+        ### end emul for loop
+        dataframe["drflx"] = newCloudRadiativeValues
+    
+        
+    def _getLeaveOneOut(self):
+        dataframe = self.simulationCompleteData
+        
+        dataframe["leaveOneOutIndex"]  = dataframe["wpos"] != -999
+        
+        dataframe = dataframe.loc[dataframe["leaveOneOutIndex"]]
+        
+        simulated = dataframe["wpos"].values
+        emulated  = dataframe["wpos_Emulated"].values
+        
+        
+        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(simulated, emulated)
+
+        rSquared = numpy.power(r_value, 2)
+        
+        self.leaveOneOutStats = [slope, intercept, r_value, p_value, std_err, rSquared]
+        
+
+    def _getLinearFit(self):
+        
+        dataframe = self.simulationCompleteData
+        
+        condition =  {}
+        condition["wpos"] = dataframe["wpos"] != -999. 
+        condition["tpot_inv"] = dataframe["tpot_inv"] > 5
+        condition["lwpEndValue"] = dataframe["lwpEndValue"] > 10.
+        condition["cfracEndValue"] = dataframe["cfracEndValue"] > 0.9
+        condition["prcp"] =  dataframe["prcp"] < 1e-6
+        
+        
+        dataframe["linearFitIndex"] = Data.getAllConditions(condition)
+        
+        dataframe = dataframe.loc[dataframe["linearFitIndex"]]        
+            
+        radiativeWarming  = dataframe["drflx"].values
+        updraft =  dataframe["wpos"].values
+        
+        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(radiativeWarming, updraft)
+        
+        rSquared = numpy.power(r_value, 2)
+        
+        self.linearFitStats = [slope, intercept, r_value, p_value, std_err, rSquared]
+    
+
+    
+    def _finaliseStats(self):
+        self.statsDataFrame = pandas.DataFrame(numpy.array([  self.leaveOneOutStats, self.linearFitStats ]),
+                                               columns = ["slope", "intercept", "r_value", "p_value", "std_err", "rSquared"],
+                                               index=["leaveOneOutStats", "linearFitStats"])
+        
+        self.statsDataFrame.to_csv( self.statsFile)        
 
     def finalise(self):
-        self.simulationCompleteData.to_csv(self.dataOutputFolder / (self.name + "_complete.csv"))                
+        self.simulationCompleteData.to_csv(self.completeFile)                
             
     
 def main(responseVariable):
@@ -332,12 +540,6 @@ def main(responseVariable):
                                             responseVariable
                                             )
                 }
-        # emulatorSets[key].runTrain()
-        
-        # emulatorSets[key].runPredictionSerial()
-        
-        emulatorSets[key].collectSimulatedVSPredictedData()
-    
     
 if __name__ == "__main__":
     start = time.time()
