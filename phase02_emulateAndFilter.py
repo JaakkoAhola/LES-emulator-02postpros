@@ -62,6 +62,11 @@ class EmulatorData:
         self.anomalyLimitLow = {}
         self.anomalyLimitHigh = {}
         self.anomalyQuantile = 0.02
+        
+        self.tol_clw = 1e-5
+        
+        self.timeStart = 2.5
+        self.timeEnd = 3.5
 
         
         self._makeFolder(self.dataOutputFolder)
@@ -103,7 +108,7 @@ class EmulatorData:
         
         self._fillUpDrflxValues()
         
-        self._insertWPOSasInObservations()
+        self._getWeightedUpdraft()
         
         self._getAnomalyLimitsQuantile()
         self._getAnomalyLimitsConstant()
@@ -433,11 +438,7 @@ class EmulatorData:
             self.simulationCollection[emul].getPSDataset()
             self.simulationCollection[emul].setTimeCoordToHours()
             
-            tstart = 2.5
-            tend = 3.5
-            tol_clw = 1e-5
-            
-            psDataTimeSliced = self.simulationCollection[emul].sliceByTimePSDataset(tstart, tend)
+            psDataTimeSliced = self.simulationCollection[emul].sliceByTimePSDataset( self.timeStart, self.timeEnd )
             
             numberOfCloudyColumns = 0
             
@@ -448,7 +449,7 @@ class EmulatorData:
                 
                 liquidWaterTimeSlice = psDataTimeSliced["l"].isel( time = timeInd )
                 
-                psDataCloudyPointIndexes, = numpy.where( liquidWaterTimeSlice > tol_clw )
+                psDataCloudyPointIndexes, = numpy.where( liquidWaterTimeSlice > self.tol_clw )
                 if len(psDataCloudyPointIndexes > 0):
                     numberOfCloudyColumns += 1
                     
@@ -469,101 +470,95 @@ class EmulatorData:
         ### end emul for loop
         dataframe["drflx"] = newCloudRadiativeValues
         
-    def _insertWPOSasInObservations(self):
-        
-        
-        
+    def _getWeightedUpdraft(self):
         dataframe = self.simulationCompleteData
         
+        dataframe["wposWeighted"] = numpy.zeros(numpy.shape(dataframe["wpos"]))
+        print("Start calculation of weighted updrafts " + self.name)
+        t1 = time.time()
+
+        indexGroup = list(self.simulationCollection)
+        try:
+            pool = multiprocessing.Pool(processes = self.numCores)
+            for ind in pool.imap_unordered( self.__getWeightedUpdraftOneSimulation, indexGroup):
+                pass
+        except Exception as e:
+            print(e)
+            pool.close()
+        pool.close()
+        t2 = time.time()
+        print(f"\nUpdrafts calculated in { t2 - t1 : .1f} seconds")
         
-        newWPOSValues = numpy.zeros(numpy.shape(dataframe["wpos"]))
-        wposCheckingValues = numpy.zeros(numpy.shape(dataframe["wpos"]))
+    def __getWeightedUpdraftOneSimulation(self, emul):
         
-        wposAllColumnMean = 0.
+        dataframe = self.simulationCompleteData
+        # t1 = time.time()
+        self.simulationCollection[emul].getNCDataset()
+        self.simulationCollection[emul].setTimeCoordToHours()
+
+        ncDataSliced = self.simulationCollection[emul].sliceByTimeNCDataset( self.timeStart, self.timeEnd )
+        
+        cloudMaskHalf = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnUpToBottomHalfOfCloud )
+        
+        wPosValuesHalfMaskedNANIncluded = ncDataSliced["w"].where(ncDataSliced["w"] > 0. ).values[ cloudMaskHalf ]
+        
+        wPosValuesHalfMasked = wPosValuesHalfMaskedNANIncluded[ numpy.logical_not(numpy.isnan(wPosValuesHalfMaskedNANIncluded)) ]
+        
+        weighted = numpy.sum( numpy.power( wPosValuesHalfMasked, 2 ) ) / numpy.sum( wPosValuesHalfMasked )
+        
+        dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
+
+        # cloudMaskLowestGridPoint = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnLowestGridPoint )        
+        
+        # wPosValuesLowestMaskedNANincluded = ncDataSliced["w"].where(ncDataSliced["w"] > 0. ).values[ cloudMaskLowestGridPoint ]
+        
+        # wPosValuesLowestMasked = wPosValuesLowestMaskedNANincluded[ numpy.logical_not(numpy.isnan(wPosValuesLowestMaskedNANincluded)) ]
+        
+        # checked = numpy.mean( wPosValuesLowestMasked)
         
         
-        # indexGroup = self.simulationFilteredData.index.values
-        # try:
-        #     pool = multiprocessing.Pool(processes = self.numCores)
-        #     for ind in pool.imap_unordered( self._runPrediction, indexGroup):
-        #          pass
-        # except Exception as e:
-        #     print(e)
-        #     pool.close()
-        # pool.close()
-        
-        
-            
-        for emulInd, emul in enumerate(list(self.simulationCollection)):
-            ncData = self.simulationCollection[emul].getNCDataset()
-            self.simulationCollection[emul].setTimeCoordToHours()
-            print(emul, "wpos", dataframe.loc[emul]["wpos"], "wpos2", dataframe.loc[emul]["w2pos"])
-            
-            tstart = 2.5
-            tend = 3.5
-            tol_clw = 1e-5
-            
-            timesList = []
-            k = 0
-            timeStartInd = Data.getClosestIndex( ncData.time.values, tstart )
-            timeEndInd   = Data.getClosestIndex( ncData.time.values, tend ) + 1
-            
-            numberOfCloudyColumns = 0
-            
-            wposAllColumnValues = 0.
-            
-            w2posAllColumnValues = 0.
-            
-            for timeInd in range(timeStartInd, timeEndInd):
-                
-                liquidWaterTimeSlice = ncData["l"].isel( time = timeInd )
-                for yCoordInd, yCoordValue in enumerate(liquidWaterTimeSlice["yt"]):
-                    for xCoordInd, xCoordValue in enumerate(liquidWaterTimeSlice["xt"]):
-                        print("time",k,"xCoordBegin");timesList.append( time.time() ); k+=1        
-                        ncDataCloudyPointIndexes, = \
-                            numpy.where( liquidWaterTimeSlice.isel(xt = xCoordInd, yt = yCoordInd) > tol_clw )
-                        print("time",k,"ncDataCloudyPointIndexes");timesList.append( time.time() ); k+=1        
-                        numberOfCloudyPoints = len(ncDataCloudyPointIndexes)
-                        
-                        if numberOfCloudyPoints > 0:
-                            firstCloudyGridCell = ncDataCloudyPointIndexes[0]
-                            middleCloydyGridCell = ncDataCloudyPointIndexes[numberOfCloudyPoints//2]
-                        else:
-                            continue
-                        print("time",k,"gridCell");timesList.append( time.time() ); k+=1
-                        wposAtFirstCloudyGridCell = ncData["w"].isel(time = timeInd, xt = xCoordInd, ym =yCoordInd, zt = firstCloudyGridCell)
-                        print("time",k,"wpos gridCell");timesList.append( time.time() ); k+=1
-                        # wposAtLowerHarfOfGridCell = wposTimeSlice.isel(xt = xCoordInd, ym = yCoordInd, zt = slice(firstCloudyGridCell, middleCloydyGridCell)).sum()
-                        
-                        if wposAtFirstCloudyGridCell > 0.:
-                            
-                            numberOfCloudyColumns += 1
-                            
-                            wposAllColumnValues +=  wposAtFirstCloudyGridCell
-                            
-                            w2posAllColumnValues += wposAtFirstCloudyGridCell**2
-                            
-                        print("time",k,"kalkyyl");timesList.append( time.time() ); k+=1
-                        print("time",k,"xcoordEnd");timesList.append( time.time() ); k+=1
-                        break
-                    print("time",k,"ycoord");timesList.append( time.time() ); k+=1
-                    break
-                print("time",k,"timeIndEnd");timesList.append( time.time() ); k+=1
-                break
-                    
-            ## end time for loop
-            if numberOfCloudyColumns > 0:
-                wposAllColumnMean = wposAllColumnValues.values / numberOfCloudyColumns
-                newWPOSWeightedMean = w2posAllColumnValues / wposAllColumnValues
-            
-            print(emul, "wpos", newWPOSWeightedMean, "wpos2", newWPOSWeightedMean)
-            newWPOSValues[ emulInd ] = newWPOSWeightedMean
-            wposCheckingValues[ emulInd ] = wposAllColumnMean
-            
-        ### end emul for loop
-        dataframe["wposWeighted"] = newWPOSValues
-        dataframe["wposCheck"] = wposCheckingValues
+        # dataframe.loc[ dataframe.index == emul,"wposCheck"] = checked
+        # t3 = time.time()
+        # print(f"{emul}: Weighted updraft {weighted} calculated { t2 - t1 : .1f} seconds")            
+        # print(f"{emul}: Checking of updraft {checked} (compare with: {dataframe.loc[emul].wpos}) calculated { t3 - t2 : .1f} seconds")            
     
+    def __getCloudMask(self, cloudWaterMatrix, maskingFunction ):
+        listOfZColumnArrays, originalShape = self.__getListOfZArrays( cloudWaterMatrix )
+        
+        vectorizedFunction = numpy.vectorize( maskingFunction, signature = "(n)->(n)" )
+        
+        maskedZColumnArrays = vectorizedFunction( listOfZColumnArrays )
+        
+        cloudMask = numpy.reshape(maskedZColumnArrays, originalShape)
+        
+        return cloudMask
+        
+    def __getListOfZArrays(self, arr):
+        originalShape = arr.shape
+        listOfZArrays = numpy.reshape(arr, (numpy.prod(arr.shape[:3]), arr.shape[3]))
+    
+        return listOfZArrays, originalShape
+    
+    
+    def __maskCloudColumnUpToBottomHalfOfCloud(self, zarr):
+        maskedZarr = numpy.zeros( numpy.shape(zarr), dtype = bool )
+        cloudyPoints = numpy.where( zarr > self.tol_clw )[0]
+        if len(cloudyPoints)> 0:
+            lowestCloudyZPointInColumn = cloudyPoints[0]
+            highestCloudyZPointInColumn = cloudyPoints[-1]
+            maskedZarr[ lowestCloudyZPointInColumn : ((highestCloudyZPointInColumn - lowestCloudyZPointInColumn)//2 + lowestCloudyZPointInColumn+1) ] = 1
+            
+        return maskedZarr
+    
+    def __maskCloudColumnLowestGridPoint(self, zarr):
+        maskedZarr = numpy.zeros( numpy.shape(zarr), dtype = bool )
+        cloudyPoints = numpy.where( zarr > self.tol_clw )[0]
+        if len(cloudyPoints)> 0:
+            lowestCloudyZPointInColumn = cloudyPoints[0]
+            maskedZarr[ lowestCloudyZPointInColumn ] = 1
+            
+        return maskedZarr    
+
         
     def _getLeaveOneOut(self):
         dataframe = self.simulationCompleteData
