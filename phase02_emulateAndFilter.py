@@ -48,6 +48,8 @@ class EmulatorData:
         
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
         
+        self.filteredFile = self.dataOutputFolder / (self.name + "_filtered.csv")
+        
         self.filterValue = filterValue
         
         self.responseIndicatorVariable = "responseIndicator"
@@ -81,6 +83,8 @@ class EmulatorData:
         
         self.__init__saveFilteredDataFortranMode()
         
+        self.__init__saveFilteredDataRMode()
+        
         # self.__init__saveOmittedData()
         
         # self.__init__saveNamelists()
@@ -98,6 +102,8 @@ class EmulatorData:
         self._filterGetOutlierDataFromLESoutput()
         
         self._fillUpDrflxValues()
+        
+        self._insertWPOSasInObservations()
         
         self._getAnomalyLimitsQuantile()
         self._getAnomalyLimitsConstant()
@@ -161,9 +167,16 @@ class EmulatorData:
         
         self.simulationFilteredData = self.simulationFilteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
         
+        self.simulationFilteredCSV = self.simulationFilteredData[self.designVariableNames + [ self.responseVariable ]]
+        
     def __init__saveFilteredDataFortranMode(self):
         
         self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
+        
+    def __init__saveFilteredDataRMode(self):
+        # self.simulationFilteredData["ind"] = range(self.simulationFilteredData.shape[0])
+        # self.simulationFilteredData.set_index("ind", drop = True, inplace = True)
+        self.simulationFilteredData.to_csv(self.filteredFile)
     
     def __init__saveOmittedData(self):
         
@@ -455,6 +468,101 @@ class EmulatorData:
             
         ### end emul for loop
         dataframe["drflx"] = newCloudRadiativeValues
+        
+    def _insertWPOSasInObservations(self):
+        
+        
+        
+        dataframe = self.simulationCompleteData
+        
+        
+        newWPOSValues = numpy.zeros(numpy.shape(dataframe["wpos"]))
+        wposCheckingValues = numpy.zeros(numpy.shape(dataframe["wpos"]))
+        
+        wposAllColumnMean = 0.
+        
+        
+        # indexGroup = self.simulationFilteredData.index.values
+        # try:
+        #     pool = multiprocessing.Pool(processes = self.numCores)
+        #     for ind in pool.imap_unordered( self._runPrediction, indexGroup):
+        #          pass
+        # except Exception as e:
+        #     print(e)
+        #     pool.close()
+        # pool.close()
+        
+        
+            
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            ncData = self.simulationCollection[emul].getNCDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+            print(emul, "wpos", dataframe.loc[emul]["wpos"], "wpos2", dataframe.loc[emul]["w2pos"])
+            
+            tstart = 2.5
+            tend = 3.5
+            tol_clw = 1e-5
+            
+            timesList = []
+            k = 0
+            timeStartInd = Data.getClosestIndex( ncData.time.values, tstart )
+            timeEndInd   = Data.getClosestIndex( ncData.time.values, tend ) + 1
+            
+            numberOfCloudyColumns = 0
+            
+            wposAllColumnValues = 0.
+            
+            w2posAllColumnValues = 0.
+            
+            for timeInd in range(timeStartInd, timeEndInd):
+                
+                liquidWaterTimeSlice = ncData["l"].isel( time = timeInd )
+                for yCoordInd, yCoordValue in enumerate(liquidWaterTimeSlice["yt"]):
+                    for xCoordInd, xCoordValue in enumerate(liquidWaterTimeSlice["xt"]):
+                        print("time",k,"xCoordBegin");timesList.append( time.time() ); k+=1        
+                        ncDataCloudyPointIndexes, = \
+                            numpy.where( liquidWaterTimeSlice.isel(xt = xCoordInd, yt = yCoordInd) > tol_clw )
+                        print("time",k,"ncDataCloudyPointIndexes");timesList.append( time.time() ); k+=1        
+                        numberOfCloudyPoints = len(ncDataCloudyPointIndexes)
+                        
+                        if numberOfCloudyPoints > 0:
+                            firstCloudyGridCell = ncDataCloudyPointIndexes[0]
+                            middleCloydyGridCell = ncDataCloudyPointIndexes[numberOfCloudyPoints//2]
+                        else:
+                            continue
+                        print("time",k,"gridCell");timesList.append( time.time() ); k+=1
+                        wposAtFirstCloudyGridCell = ncData["w"].isel(time = timeInd, xt = xCoordInd, ym =yCoordInd, zt = firstCloudyGridCell)
+                        print("time",k,"wpos gridCell");timesList.append( time.time() ); k+=1
+                        # wposAtLowerHarfOfGridCell = wposTimeSlice.isel(xt = xCoordInd, ym = yCoordInd, zt = slice(firstCloudyGridCell, middleCloydyGridCell)).sum()
+                        
+                        if wposAtFirstCloudyGridCell > 0.:
+                            
+                            numberOfCloudyColumns += 1
+                            
+                            wposAllColumnValues +=  wposAtFirstCloudyGridCell
+                            
+                            w2posAllColumnValues += wposAtFirstCloudyGridCell**2
+                            
+                        print("time",k,"kalkyyl");timesList.append( time.time() ); k+=1
+                        print("time",k,"xcoordEnd");timesList.append( time.time() ); k+=1
+                        break
+                    print("time",k,"ycoord");timesList.append( time.time() ); k+=1
+                    break
+                print("time",k,"timeIndEnd");timesList.append( time.time() ); k+=1
+                break
+                    
+            ## end time for loop
+            if numberOfCloudyColumns > 0:
+                wposAllColumnMean = wposAllColumnValues.values / numberOfCloudyColumns
+                newWPOSWeightedMean = w2posAllColumnValues / wposAllColumnValues
+            
+            print(emul, "wpos", newWPOSWeightedMean, "wpos2", newWPOSWeightedMean)
+            newWPOSValues[ emulInd ] = newWPOSWeightedMean
+            wposCheckingValues[ emulInd ] = wposAllColumnMean
+            
+        ### end emul for loop
+        dataframe["wposWeighted"] = newWPOSValues
+        dataframe["wposCheck"] = wposCheckingValues
     
         
     def _getLeaveOneOut(self):
