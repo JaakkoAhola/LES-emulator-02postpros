@@ -471,56 +471,36 @@ class EmulatorData:
         dataframe["drflx"] = newCloudRadiativeValues
         
     def _getWeightedUpdraft(self):
+        
         dataframe = self.simulationCompleteData
         
         dataframe["wposWeighted"] = numpy.zeros(numpy.shape(dataframe["wpos"]))
+        
         print("Start calculation of weighted updrafts " + self.name)
+        
         t1 = time.time()
-
-        indexGroup = list(self.simulationCollection)
-        try:
-            pool = multiprocessing.Pool(processes = self.numCores)
-            for ind in pool.imap_unordered( self.__getWeightedUpdraftOneSimulation, indexGroup):
-                pass
-        except Exception as e:
-            print(e)
-            pool.close()
-        pool.close()
+        
+        for emul in self.simulationCollection:
+            
+            self.simulationCollection[emul].getNCDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+    
+            ncDataSliced = self.simulationCollection[emul].sliceByTimeNCDataset( self.timeStart, self.timeEnd )
+            
+            cloudMaskHalf = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnUpToBottomHalfOfCloud )
+            
+            wPosValuesHalfMaskedNANIncluded = ncDataSliced["w"].where(ncDataSliced["w"] > 0. ).values[ cloudMaskHalf ]
+            
+            wPosValuesHalfMasked = wPosValuesHalfMaskedNANIncluded[ numpy.logical_not(numpy.isnan(wPosValuesHalfMaskedNANIncluded)) ]
+            
+            weighted = numpy.sum( numpy.power( wPosValuesHalfMasked, 2 ) ) / numpy.sum( wPosValuesHalfMasked )
+            
+            dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
         t2 = time.time()
-        print(f"\nUpdrafts calculated in { t2 - t1 : .1f} seconds")
         
-    def __getWeightedUpdraftOneSimulation(self, emul):
-        
-        dataframe = self.simulationCompleteData
-        # t1 = time.time()
-        self.simulationCollection[emul].getNCDataset()
-        self.simulationCollection[emul].setTimeCoordToHours()
+        print("Time to calculate updrafts {t2-t1:.1f")
 
-        ncDataSliced = self.simulationCollection[emul].sliceByTimeNCDataset( self.timeStart, self.timeEnd )
         
-        cloudMaskHalf = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnUpToBottomHalfOfCloud )
-        
-        wPosValuesHalfMaskedNANIncluded = ncDataSliced["w"].where(ncDataSliced["w"] > 0. ).values[ cloudMaskHalf ]
-        
-        wPosValuesHalfMasked = wPosValuesHalfMaskedNANIncluded[ numpy.logical_not(numpy.isnan(wPosValuesHalfMaskedNANIncluded)) ]
-        
-        weighted = numpy.sum( numpy.power( wPosValuesHalfMasked, 2 ) ) / numpy.sum( wPosValuesHalfMasked )
-        
-        dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
-
-        # cloudMaskLowestGridPoint = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnLowestGridPoint )        
-        
-        # wPosValuesLowestMaskedNANincluded = ncDataSliced["w"].where(ncDataSliced["w"] > 0. ).values[ cloudMaskLowestGridPoint ]
-        
-        # wPosValuesLowestMasked = wPosValuesLowestMaskedNANincluded[ numpy.logical_not(numpy.isnan(wPosValuesLowestMaskedNANincluded)) ]
-        
-        # checked = numpy.mean( wPosValuesLowestMasked)
-        
-        
-        # dataframe.loc[ dataframe.index == emul,"wposCheck"] = checked
-        # t3 = time.time()
-        # print(f"{emul}: Weighted updraft {weighted} calculated { t2 - t1 : .1f} seconds")            
-        # print(f"{emul}: Checking of updraft {checked} (compare with: {dataframe.loc[emul].wpos}) calculated { t3 - t2 : .1f} seconds")            
     
     def __getCloudMask(self, cloudWaterMatrix, maskingFunction ):
         listOfZColumnArrays, originalShape = self.__getListOfZArrays( cloudWaterMatrix )
