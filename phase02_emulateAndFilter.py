@@ -5,16 +5,22 @@ Created on Wed Feb  5 17:31:36 2020
 
 @author: Jaakko Ahola, Finnish Meteorological Institute
 @licence: MIT licence Copyright
+
+Second phase of post-processing simulation data for a emulator
+
+Includes running actual emulator with leave-one-out method
 """
+print(__doc__)
 import copy
 import math
 import numpy
+import xarray
 import pandas
 import pathlib
 import time
 import os
 import sys
-import scipy
+from scipy import stats
 import LES2emu
 import f90nml
 from subprocess import run
@@ -34,11 +40,19 @@ class EmulatorData:
         
         self.trainingSimulationRootFolder = pathlib.Path( "/".join(trainingSimulationRootFolder) )
         
+        assert(self.trainingSimulationRootFolder.exists())
+        
         self.dataOutputRootFolder = pathlib.Path(dataOutputRootFolder)
         
         self.dataOutputFolder = self.dataOutputRootFolder / self.name
         
         self.responseVariable = responseVariable
+        
+        self.simulatedVariable = self.responseVariable + "_Simulated"
+        
+        self.emulatedVariable = self.responseVariable + "_Emulated"
+        
+        self.linearFitVariable = self.responseVariable + "_LinearFit"
         
         self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
         self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
@@ -90,15 +104,15 @@ class EmulatorData:
         
         self.__init__saveFilteredDataRMode()
         
-        # self.__init__saveOmittedData()
+        self.__init__saveOmittedData()
         
-        # self.__init__saveNamelists()
+        self.__init__saveNamelists()
         
-        # self.__init__linkExecutables()
+        self.__init__linkExecutables()
         
-        # self.runTrain()
+        self.runTrain()
         
-        # self.runPredictionSerial()
+        self.runPredictionSerial()
         
         self.collectSimulatedVSPredictedData()
         
@@ -108,7 +122,7 @@ class EmulatorData:
         
         self._fillUpDrflxValues()
         
-        self._getWeightedUpdraft()
+        # self._getWeightedUpdraft()
         
         self._getAnomalyLimitsQuantile()
         self._getAnomalyLimitsConstant()
@@ -117,6 +131,8 @@ class EmulatorData:
         
         self._getLeaveOneOut()
         self._getLinearFit()
+        
+        self._getErrors()
         
         self._finaliseStats()
         self._finaliseAnomalies()
@@ -168,7 +184,7 @@ class EmulatorData:
 
     def __init__filterNan(self):
         
-        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[ self.responseVariable ] != self.filterValue ]
+        self.simulationFilteredData = self.simulationCompleteData[ ~ ( numpy.isclose( self.simulationCompleteData[ self.responseVariable ], self.filterValue, atol = 1))]
         
         self.simulationFilteredData = self.simulationFilteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
         
@@ -179,13 +195,9 @@ class EmulatorData:
         self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
         
     def __init__saveFilteredDataRMode(self):
-        # self.simulationFilteredData["ind"] = range(self.simulationFilteredData.shape[0])
-        # self.simulationFilteredData.set_index("ind", drop = True, inplace = True)
-        self.simulationFilteredData.to_csv(self.filteredFile)
+        self.simulationFilteredCSV.to_csv(self.filteredFile)
     
     def __init__saveOmittedData(self):
-        
-        #self.simulationFilteredData = self.simulationFilteredData.set_index( numpy.arange( self.simulationFilteredData.shape[0] ) )
         
         for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
@@ -291,8 +303,8 @@ class EmulatorData:
         
             
     def collectSimulatedVSPredictedData(self):
-        datadict = {self.responseVariable + "_Simulated": [],
-                    self.responseVariable + "_Emulated": []}
+        datadict = {self.simulatedVariable: [],
+                    self.emulatedVariable: []}
         
         for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
@@ -301,8 +313,8 @@ class EmulatorData:
             emulated  = self._readPredictedData(folder, ind)
             
 
-            datadict[self.responseVariable + "_Simulated"].append(simulated)
-            datadict[self.responseVariable + "_Emulated"].append(emulated)
+            datadict[self.simulatedVariable].append(simulated)
+            datadict[self.emulatedVariable].append(emulated)
         
         
         
@@ -316,9 +328,9 @@ class EmulatorData:
         self.simulationCompleteData.drop(columns = self.responseIndicatorVariable, inplace = True)
         
         if self.allIsWell:
-            self.simulationFilteredData.drop(columns = self.responseVariable + "_Simulated", inplace = True )
+            self.simulationFilteredData.drop(columns = self.simulatedVariable, inplace = True )
         
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", "wpos"] + self.designVariableNames, how = "left")
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
         
         
 
@@ -333,7 +345,7 @@ class EmulatorData:
     def _checkIntegrety(self):
         self.allIsWell = True
         for ind in self.simulationFilteredData.index:
-            relativeError = numpy.abs( (self.simulationFilteredData.loc[ind][self.responseVariable] - self.simulationFilteredData.loc[ind][self.responseVariable + "_Simulated"]) 
+            relativeError = numpy.abs( (self.simulationFilteredData.loc[ind][self.responseVariable] - self.simulationFilteredData.loc[ind][self.simulatedVariable]) 
                       / self.simulationFilteredData.loc[ind][self.responseVariable]) * 100.
             if relativeError > 0.1:
                 print("case", ind, "relative error", relativeError)
@@ -482,10 +494,12 @@ class EmulatorData:
         
         for emul in self.simulationCollection:
             
-            self.simulationCollection[emul].getNCDataset()
-            self.simulationCollection[emul].setTimeCoordToHours()
-    
-            ncDataSliced = self.simulationCollection[emul].sliceByTimeNCDataset( self.timeStart, self.timeEnd )
+            filename = self.simulationCollection[emul].getNCDatasetFileName()
+            ncData = xarray.open_dataset(filename)
+            timeStartInd = Data.getClosestIndex( ncData.time.values, self.timeStart*3600. )
+            timeEndInd   = Data.getClosestIndex( ncData.time.values, self.timeEnd*3600. )+1
+            
+            ncDataSliced = ncData.isel(time=slice(timeStartInd, timeEndInd))
             
             cloudMaskHalf = self.__getCloudMask( ncDataSliced["l"].values, self.__maskCloudColumnUpToBottomHalfOfCloud )
             
@@ -498,7 +512,7 @@ class EmulatorData:
             dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
         t2 = time.time()
         
-        print("Time to calculate updrafts {t2-t1:.1f")
+        print("Time to calculate updrafts {t2-t1:.1f}")
 
         
     
@@ -547,11 +561,11 @@ class EmulatorData:
         
         dataframe = dataframe.loc[dataframe["leaveOneOutIndex"]]
         
-        simulated = dataframe["wpos"].values
-        emulated  = dataframe["wpos_Emulated"].values
+        simulated = dataframe[ self.responseVariable ].values
+        emulated  = dataframe[ self.emulatedVariable].values
         
         
-        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(simulated, emulated)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(simulated, emulated)
 
         rSquared = numpy.power(r_value, 2)
         
@@ -562,28 +576,42 @@ class EmulatorData:
         
         dataframe = self.simulationCompleteData
         
-        condition =  {}
-        condition["wpos"] = dataframe["wpos"] != -999. 
-        condition["tpot_inv"] = dataframe["tpot_inv"] > 5
-        condition["lwpEndValue"] = dataframe["lwpEndValue"] > 10.
-        condition["cfracEndValue"] = dataframe["cfracEndValue"] > 0.9
-        condition["prcp"] =  dataframe["prcp"] < 1e-6
+        dataframe = dataframe.loc[ dataframe[self.responseVariable] != self.filterValue]
+        
+        extraFilterCondition =  {}
+        #extra conditions
+        extraFilterCondition["tpot_inv"] = dataframe["tpot_inv"] > 5
+        extraFilterCondition["lwpEndValue"] = dataframe["lwpEndValue"] > 10.
+        extraFilterCondition["cfracEndValue"] = dataframe["cfracEndValue"] > 0.9
+        extraFilterCondition["prcp"] =  dataframe["prcp"] < 1e-6
         
         
-        dataframe["linearFitIndex"] = Data.getAllConditions(condition)
+        self.simulationCompleteData["linearFitIndex"] = Data.getAllConditions(extraFilterCondition)
         
-        dataframe = dataframe.loc[dataframe["linearFitIndex"]]        
+        filterOutPoints = False
+        if filterOutPoints:
+            dataframe = dataframe.loc[dataframe["linearFitIndex"]]
             
         radiativeWarming  = dataframe["drflx"].values
-        updraft =  dataframe["wpos"].values
+        updraft =  dataframe[ self.responseVariable ].values
         
-        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(radiativeWarming, updraft)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(radiativeWarming, updraft)
         
         rSquared = numpy.power(r_value, 2)
         
         self.linearFitStats = [slope, intercept, r_value, p_value, std_err, rSquared]
+        
+        coef = [slope, intercept]
+        poly1d_fn = numpy.poly1d(coef)
+            
+        self.simulationCompleteData[ self.linearFitVariable ] = self.simulationCompleteData.apply(lambda row: poly1d_fn(row["drflx"]), axis = 1)
     
-
+    def _getErrors(self):
+        dataframe = self.simulationCompleteData
+        
+        dataframe["absErrorEmul"] = dataframe.apply(lambda row: row[self.responseVariable] - row[self.emulatedVariable], axis = 1)
+        
+        dataframe["absErrorLinearFit"] = dataframe.apply(lambda row: row[self.responseVariable] - row[self.linearFitVariable], axis = 1)
     
     def _finaliseStats(self):
         self.statsDataFrame = pandas.DataFrame(numpy.array([  self.leaveOneOutStats, self.linearFitStats ]),
@@ -599,7 +627,7 @@ class EmulatorData:
 def main(responseVariable):
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData2"# os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptDataW2Pos"# os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
    
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -629,9 +657,9 @@ if __name__ == "__main__":
     try:
         responseVariable = sys.argv[1]
     except IndexError:
-        responseVariable = "wpos"
+        responseVariable = "w2pos"
     
     print("responseVariable: ",responseVariable)
     main(responseVariable)
     end = time.time()
-    print("Script completed in " + str(round((end - start),0)) + " seconds")
+    print(f"Script completed in {Data.timeDuration(end - start):s}")
