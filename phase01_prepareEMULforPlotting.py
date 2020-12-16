@@ -5,16 +5,20 @@ Created on Thu Jan 23 14:41:12 2020
 
 @author: Jaakko Ahola, Finnish Meteorological Institute
 @licence: MIT licence Copyright
+
+First phase of post-processing simulation data for a emulator
 """
+print(__doc__)
 import os
 import pandas
 import pathlib
 import time
 import sys
+
+sys.path.append("../LES-03plotting")
 from InputSimulation import InputSimulation
 from Colorful import Colorful
-def changeToStringList(array):
-    return list(map(str, array))
+from Data import Data
 
 sys.path.append("../LES-emulator-01prepros")
 import ECLAIR_calcs
@@ -79,7 +83,7 @@ def prepareEMULData():
     
     
     
-    csvFolder = "/home/aholaj/Data/EmulatorManuscriptData2" #os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    csvFolder = "/home/aholaj/Data/EmulatorManuscriptDataW2Pos" #os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
     for case in list(simulationData):
         simulationData[case].saveDataFrameAsCSV(csvFolder +"/" + case, case + "_phase01.csv")
 
@@ -90,4 +94,4 @@ if __name__ == "__main__":
     start = time.time()
     main()
     end = time.time()
-    print("Script completed in " + str(round((end - start),0)) + " seconds")       
+    print(f"Script completed in {Data.timeDuration(end - start):s}")
