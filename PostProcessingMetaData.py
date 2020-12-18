@@ -8,7 +8,6 @@ Created on Wed Dec 16 18:21:10 2020
 
 PostProcessingMetaData Class
 """
-print(__doc__)
 import time
 import pathlib
 class PostProcessingMetaData:
@@ -27,7 +26,8 @@ class PostProcessingMetaData:
     
     def testFolderExists(self, folder):
         assert(folder.exists())
-        
+    def __doc__():
+        print(__doc__)
 
 def main():
     pass
