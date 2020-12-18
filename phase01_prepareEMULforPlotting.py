@@ -27,13 +27,6 @@ import ECLAIR_calcs
 from PostProcessingMetaData import PostProcessingMetaData
 
 class Phase01(PostProcessingMetaData):
-    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list):
-        super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder)
-        
-        self.simulationDataCSVFileName = self.dataOutputRootFolder / self.name / (self.name + "_phase01.csv")
-        
-    def __checkIfOutputFileAlreadyExists(self):
-        return self.simulationDataCSVFileName.is_file()
     
     def prepareEMULData(self):
         
@@ -45,6 +38,9 @@ class Phase01(PostProcessingMetaData):
         self.__getPBLHinMetersColumn()
         self.__setSimulationDataFrameAsJoined()
         self.__saveDataFrame()
+    
+    def __checkIfOutputFileAlreadyExists(self):
+        return self.phase01CSVFile.is_file()
         
     def __prepareNewColumns(self):
         self.fileList  = InputSimulation.getEmulatorFileList( self.trainingSimulationRootFolder )
@@ -113,7 +109,7 @@ class Phase01(PostProcessingMetaData):
         self.simulationData.setSimulationDataFrame( self.simulationDataFrame )
         
     def __saveDataFrame(self):
-        self.simulationData.saveDataFrameAsCSV(self.simulationDataCSVFileName)
+        self.simulationData.saveDataFrameAsCSV(self.phase01CSVFile)
     
 def main():
     
