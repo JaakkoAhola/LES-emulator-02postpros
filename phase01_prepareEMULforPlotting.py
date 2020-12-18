@@ -111,6 +111,9 @@ class Phase01(PostProcessingMetaData):
     def __saveDataFrame(self):
         self.simulationData.saveDataFrameAsCSV(self.phase01CSVFile)
     
+    def removeOutputFile(self):
+        os.remove(self.phase01CSVFile)
+    
 def main():
     
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
