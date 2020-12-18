@@ -12,8 +12,9 @@ print(__doc__)
 import os
 import pandas
 import pathlib
-import time
 import sys
+import time
+
 
 sys.path.append("../LES-03plotting")
 from InputSimulation import InputSimulation
@@ -23,73 +24,94 @@ from Data import Data
 sys.path.append("../LES-emulator-01prepros")
 import ECLAIR_calcs
 
-def prepareEMULData():
+from PostProcessingMetaData import PostProcessingMetaData
 
-                
-    rootFolderOfEmulatorSets = "/home/aholaj/mounttauskansiot/eclairmount"
-    
-    folderList = {"LVL3Night" :"case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night",
-                "LVL3Day"   :  "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day" ,
-                "LVL4Night" :  "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night" ,
-                "LVL4Day"   : "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day" 
-                }
-    
-    identifierPrefix ={"LVL3Night" :"3N",
-                "LVL3Day"   :  "3D" ,
-                "LVL4Night" :  "4N" ,
-                "LVL4Day"   : "4D" 
-            }
-      
-    fileLists = {}
-    idLists = {}
-    labelLists = {}
-    colorLists = {}
-    
-    for case in list(folderList):
-        fileLists[case]  = InputSimulation.getEmulatorFileList(rootFolderOfEmulatorSets, folderList[case] )
-        idLists[case]    = InputSimulation.getEmulatorIDlist(fileLists[case])
-        labelLists[case] = idLists[case]
-        colorLists[case] = Colorful.getIndyColorList( len(fileLists[case]))
-    
-    
-    simulationData = {}
-    
-    for case in list(folderList):
-        simulationData[case] = InputSimulation( idCollection= idLists[case], 
-                                               folderCollection= fileLists[case],
-                                               labelCollection = labelLists[case],
-                                               colorSet= colorLists[case])
+class Phase01(PostProcessingMetaData):
+    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list):
+        super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder)
         
-    
-    designData = {}
-    for case in list(folderList):
-        designData[case] = InputSimulation.getEmulatorDesignAsDataFrame( pathlib.Path(rootFolderOfEmulatorSets) / folderList[case], identifierPrefix[case])
-        joinedDF = pandas.merge( simulationData[case].getSimulationDataFrame(), designData[case], on="ID")
-        joinedDF = joinedDF.set_index("ID")
+        self.simulationDataCSVFileName = self.dataOutputRootFolder / self.name / (self.name + "_phase01.csv")
         
+    def __checkIfOutputFileAlreadyExists(self):
+        return self.simulationDataCSVFileName.is_file()
+    
+    def prepareEMULData(self):
+        
+        if (self.__checkIfOutputFileAlreadyExists()): print("Output file already exists"); return
+        
+        self.__prepareNewColumns()
+        self.__getDesign()
+        self.__joinDataFrames()
+        self.__getPBLHinMeters()
+        self.__setSimulationDataFrameAsJoined()
+        self.__saveDataFrame()
+        
+    def __prepareNewColumns(self):
+        self.fileList  = InputSimulation.getEmulatorFileList( self.trainingSimulationRootFolder )
+        self.idList    = InputSimulation.getEmulatorIDlist( self.fileList )
+        self.labelList = self.idList
+        self.colorList = Colorful.getIndyColorList( len(self.fileList) )
+        
+        self.simulationData = InputSimulation( idCollection= self.idList, 
+                                                   folderCollection= self.fileList,
+                                                   labelCollection = self.labelList,
+                                                   colorSet= self.colorList)
+
+    def __getDesign(self):
+        
+        self.designData = InputSimulation.getEmulatorDesignAsDataFrame( self.trainingSimulationRootFolder, self.ID_prefix)
+
+        
+    def __joinDataFrames(self):        
+        self.joinedDF = pandas.merge( self.simulationData.getSimulationDataFrame(), self.designData, on="ID")
+        self.joinedDF = self.joinedDF.set_index("ID")
+        
+    def __getPBLHinMeters(self):
         pres0= 1017.8
-        pblh_m_list  = [None]*joinedDF.shape[0]
-        for i in range(joinedDF.shape[0]):
-            tpot_pbl = joinedDF.iloc[i]["tpot_pbl"]
-            lwp = joinedDF.iloc[i]["lwp"]
-            pblh = joinedDF.iloc[i]["pblh"]
+        pblh_m_list  = [None]*self.joinedDF.shape[0]
+        for ind,indValue in enumerate(self.joinedDF.index.values):
+            tpot_pbl = self.joinedDF.loc[indValue]["tpot_pbl"]
+            lwp = self.joinedDF.loc[indValue]["lwp"]
+            pblh = self.joinedDF.loc[indValue]["pblh"]
             q_pbl      = ECLAIR_calcs.solve_rw_lwp( pres0*100., tpot_pbl,lwp*0.001, pblh*100. )  # kg/kg        
             lwp_apu, cloudbase, pblh_m, clw_max = ECLAIR_calcs.calc_lwp( pres0*100., tpot_pbl , pblh*100., q_pbl )
-            pblh_m_list[i] = pblh_m
-        joinedDF["pblh_m"] = pblh_m_list
-        simulationData[case].setSimulationDataFrame( joinedDF )
+            pblh_m_list[ind] = pblh_m
+        self.joinedDF["pblh_m"] = pblh_m_list
     
+    def __setSimulationDataFrameAsJoined(self):
+        
+        self.simulationData.setSimulationDataFrame( self.joinedDF )
+        
+    def __saveDataFrame(self):
+        self.simulationData.saveDataFrameAsCSV(self.simulationDataCSVFileName)
     
-    
-    
-    
-    csvFolder = "/home/aholaj/Data/EmulatorManuscriptDataW2Pos" #os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
-    for case in list(simulationData):
-        simulationData[case].saveDataFrameAsCSV(csvFolder +"/" + case, case + "_phase01.csv")
-
 def main():
-    prepareEMULData()
-   
+    
+    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
+    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    
+    emulatorSets = {"LVL3Night" : Phase01("LVL3Night",
+                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
+                                             [rootFolderOfDataOutputs],
+                                             ),
+                "LVL3Day"   :  Phase01( "LVL3Day",
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
+                                            [rootFolderOfDataOutputs],
+                                            ),
+                "LVL4Night" :  Phase01("LVL4Night",
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
+                                            [rootFolderOfDataOutputs],
+                                            ),
+                "LVL4Day"   : Phase01("LVL4Day",
+                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
+                                            [rootFolderOfDataOutputs],
+                                            )
+                }
+    
+    for key in emulatorSets:
+        emulatorSets[key].prepareEMULData()
+    
+    
 if __name__ == "__main__":
     start = time.time()
     main()
