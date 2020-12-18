@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 import time
 import pathlib
+import sys
+sys.path.append("../LES-03plotting")
+from FileSystem import FileSystem
 
 class PostProcessingMetaData:
     """
@@ -25,7 +28,26 @@ PostProcessingMetaData Class
         
         self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
         
+        self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
+        
+        self.statsFile = self.dataOutputFolder / (self.name + "_stats.csv")
+        
+        self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
+        
+        self.filteredFile = self.dataOutputFolder / (self.name + "_filtered.csv")
+        
+        self.completeFile = self.dataOutputFolder / (self.name + "_complete.csv")
+        
+        
+        self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
+        
+        
+        self.responseIndicatorVariable = "responseIndicator"
+        
         self.testFolderExists(self.trainingSimulationRootFolder)
+        
+        FileSystem.makeFolder( self.dataOutputFolder )
+        
         
     def __joinFolders(self, sequenceOfFolders : list):
         return pathlib.Path("/".join(sequenceOfFolders))
