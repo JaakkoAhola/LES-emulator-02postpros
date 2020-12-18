@@ -19,6 +19,10 @@ class PostProcessingMetaData:
         self.trainingSimulationRootFolder = self.__joinFolders( trainingSimulationRootFolder )
         self.dataOutputRootFolder = self.__joinFolders( dataOutputRootFolder )
         
+        self.dataOutputFolder = self.dataOutputRootFolder / self.name
+        
+        self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
+        
         self.testFolderExists(self.trainingSimulationRootFolder)
         
     def __joinFolders(self, sequenceOfFolders : list):
