@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+import time
+import pathlib
+
+class PostProcessingMetaData:
+    """
 Created on Wed Dec 16 18:21:10 2020
 
 @author: Jaakko Ahola, Finnish Meteorological Institute
@@ -8,9 +12,7 @@ Created on Wed Dec 16 18:21:10 2020
 
 PostProcessingMetaData Class
 """
-import time
-import pathlib
-class PostProcessingMetaData:
+
     def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list):
         
         self.name = name
@@ -30,8 +32,6 @@ class PostProcessingMetaData:
     
     def testFolderExists(self, folder):
         assert(folder.exists())
-    def __doc__():
-        print(__doc__)
 
 def main():
     pass
