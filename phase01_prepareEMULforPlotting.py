@@ -42,7 +42,7 @@ class Phase01(PostProcessingMetaData):
         self.__prepareNewColumns()
         self.__getDesign()
         self.__joinDataFrames()
-        self.__getPBLHinMeters()
+        self.__getPBLHinMetersColumn()
         self.__setSimulationDataFrameAsJoined()
         self.__saveDataFrame()
         
@@ -61,26 +61,56 @@ class Phase01(PostProcessingMetaData):
         
         self.designData = InputSimulation.getEmulatorDesignAsDataFrame( self.trainingSimulationRootFolder, self.ID_prefix)
 
-        
     def __joinDataFrames(self):        
-        self.joinedDF = pandas.merge( self.simulationData.getSimulationDataFrame(), self.designData, on="ID")
-        self.joinedDF = self.joinedDF.set_index("ID")
+        self.simulationDataFrame = pandas.merge( self.simulationData.getSimulationDataFrame(), self.designData, on="ID")
+        self.simulationDataFrame.set_index("ID", inplace = True)
+    
+    def __getPBLHinMetersColumn(self):
+        self.simulationDataFrame["pblh_m"] = self.simulationDataFrame.apply(lambda row: \
+                                                          Phase01.getPBLHinMeters( {"pres0": 1017.8,
+                                                                                    "tpot_pbl":row["tpot_pbl"],
+                                                                                    "lwp": row["lwp"],
+                                                                                    "pblh": row["pblh"]} ),
+                                                              axis = 1)
         
-    def __getPBLHinMeters(self):
-        pres0= 1017.8
-        pblh_m_list  = [None]*self.joinedDF.shape[0]
-        for ind,indValue in enumerate(self.joinedDF.index.values):
-            tpot_pbl = self.joinedDF.loc[indValue]["tpot_pbl"]
-            lwp = self.joinedDF.loc[indValue]["lwp"]
-            pblh = self.joinedDF.loc[indValue]["pblh"]
-            q_pbl      = ECLAIR_calcs.solve_rw_lwp( pres0*100., tpot_pbl,lwp*0.001, pblh*100. )  # kg/kg        
-            lwp_apu, cloudbase, pblh_m, clw_max = ECLAIR_calcs.calc_lwp( pres0*100., tpot_pbl , pblh*100., q_pbl )
-            pblh_m_list[ind] = pblh_m
-        self.joinedDF["pblh_m"] = pblh_m_list
+    def getPBLHinMeters( parametersDict = {"pres0": None, "tpot_pbl":None, "lwp": None, "pblh":None} ):
+        """
+        Parameters
+        ----------
+        parametersDict : dict, 
+            DESCRIPTION. The default is {"pres0": None, "tpot_pbl":None, "lwp": None, "pblh":None}.
+            
+            Units: 
+                pres0 : [hPa]
+                tpot_pbl : [K]
+                lwp : [g/kg]
+                pblh : [hPa]
+
+        Returns
+        -------
+        pblh_m : unit [m]
+            DESCRIPTION: Planetary Boundary Layer Height in meters
+
+        """
+        
+        for key in ["pres0", "tpot_pbl", "lwp", "pblh"]:
+            assert(key in parametersDict)
+            
+        q_pbl = ECLAIR_calcs.solve_rw_lwp(parametersDict["pres0"]*100.,
+                                          parametersDict["tpot_pbl"],
+                                          parametersDict["lwp"]*0.001,
+                                          parametersDict["pblh"]*100.) #kg/kg
+        
+        lwp_apu, cloudbase, pblh_m, clw_max = ECLAIR_calcs.calc_lwp( parametersDict["pres0"]*100.,
+                                                                    parametersDict["tpot_pbl"],
+                                                                    parametersDict["pblh"]*100.,
+                                                                    q_pbl )
+        
+        return pblh_m
     
     def __setSimulationDataFrameAsJoined(self):
         
-        self.simulationData.setSimulationDataFrame( self.joinedDF )
+        self.simulationData.setSimulationDataFrame( self.simulationDataFrame )
         
     def __saveDataFrame(self):
         self.simulationData.saveDataFrameAsCSV(self.simulationDataCSVFileName)
