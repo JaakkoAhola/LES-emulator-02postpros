@@ -39,10 +39,11 @@ PostProcessingMetaData Class
         self.completeFile = self.dataOutputFolder / (self.name + "_complete.csv")
         
         
-        self.fortranDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
         
         
         self.responseIndicatorVariable = "responseIndicator"
+        
+        self.filterIndex = "FilterIndex"
         
         self.testFolderExists(self.trainingSimulationRootFolder)
         
