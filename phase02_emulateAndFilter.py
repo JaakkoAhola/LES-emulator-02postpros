@@ -124,6 +124,8 @@ class EmulatorData(PostProcessingMetaData):
         self.__init__saveOmittedData()
         
         self.__init__saveNamelists()
+
+        self.__init__saveYAMLconfigFiles()
         
         self.__init__linkExecutables()
         
@@ -271,6 +273,18 @@ class EmulatorData(PostProcessingMetaData):
                 f90nml.write(predictNML, predictNMLFile)
                 
                 
+    def __init__saveYAMLconfigFiles(self):
+        
+        for ind in self.simulationFilteredData.index:
+            folder = (self.fortranDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            
+            configuration = {"trainingDataInputFile": str( folder / ("DATA_train_" + ind)),
+                          "predictionDataInputFile" : str( folder / ("DATA_predict_" + ind)),
+                          "predictionOutputFile" : str(folder / ("DATA_predict_output_" + ind)),}
+            
+            FileSystem.writeYAML(folder / "config.yaml", configuration)
+            
     def __init__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
             folder = (self.fortranDataFolder / str(ind) )
@@ -592,7 +606,7 @@ class EmulatorData(PostProcessingMetaData):
             dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
         t2 = time.time()
         
-        print("Time to calculate updrafts {t2-t1:.1f}")
+        print(f"Time to calculate updrafts {t2-t1:.1f}")
 
         
     
