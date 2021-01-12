@@ -53,6 +53,7 @@ class EmulatorData(PostProcessingMetaData):
         
         self.responseVariable = self.yamlDictionary["responseVariable"]
         
+        self.useFortran = self.yamlDictionary["useFortran"]
         
         self.simulatedVariable = self.responseVariable + "_Simulated"
         
@@ -125,8 +126,15 @@ class EmulatorData(PostProcessingMetaData):
         
         self.__init__getExeFolderList()
         
+    def runEmulator(self):
         
-    def runFortranEmulator(self):
+        if self.useFortran:
+            self.__runFortranEmulator()
+        else:
+            self.__runPythonEmulator()
+        
+        
+    def __runFortranEmulator(self):
         
         self.__init__saveNamelists()
 
@@ -136,7 +144,7 @@ class EmulatorData(PostProcessingMetaData):
         
         self.runPredictionParallel()
         
-    def runPythonEmulator(self):
+    def __runPythonEmulator(self):
         
         self.__init__saveYAMLconfigFiles()
         
@@ -756,6 +764,8 @@ def main():
     
     for key in emulatorSets:
         emulatorSets[key].prepare()
+        emulatorSets[key].runEmulator()
+        emulatorSets[key].postProcess()
     
 if __name__ == "__main__":
     start = time.time()
