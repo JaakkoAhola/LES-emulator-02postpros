@@ -102,29 +102,29 @@ class EmulatorData(PostProcessingMetaData):
         self.toleranceForInEqualConditions = tolerance
         
     def prepare(self):
-        self.__init__getPhase01()
+        self.__prepare__getPhase01()
         
-        self.__init__getDesignVariableNames()
+        self.__prepare__getDesignVariableNames()
         
-        self.__init__getResponseFromTrainingSimulations()
+        self.__prepare__getResponseFromTrainingSimulations()
         
-        self.__init__setSimulationCompleteDataFromDesignAndTraining()
+        self.__prepare__setSimulationCompleteDataFromDesignAndTraining()
         
-        self.__init__setResponseIndicatorFilteredData()
+        self.__prepare__setResponseIndicatorFilteredData()
         
-        self._getSimulationCollection()
+        self.__prepare__getSimulationCollection()
         
-        self._filterGetOutlierDataFromLESoutput()
+        self.__prepare__filterGetOutlierDataFromLESoutput()
         
-        self.__init__filter()
+        self.__prepare__filter()
         
-        self.__init__saveFilteredDataExeMode()
+        self.__prepare__saveFilteredDataExeMode()
         
-        self.__init__saveFilteredDataRMode()
+        self.__prepare__saveFilteredDataRMode()
         
-        self.__init__saveOmittedData()
+        self.__prepare__saveOmittedData()
         
-        self.__init__getExeFolderList()
+        self.__prepare__getExeFolderList()
         
     def runEmulator(self):
         
@@ -136,17 +136,18 @@ class EmulatorData(PostProcessingMetaData):
         
     def __runFortranEmulator(self):
         
-        self.__init__saveNamelists()
+        self.__fortranEmulator__saveNamelists()
 
-        self.__init__linkExecutables()
+        self.__fortranEmulator__linkExecutables()
         
-        self.runTrain()
+        self.__fortranEmulator__runTrain()
         
-        self.runPredictionParallel()
+        self.__fortranEmulator__runPredictionParallel()
         
     def __runPythonEmulator(self):
         
-        self.__init__saveYAMLconfigFiles()
+        self.__pythonEmulator__saveYAMLconfigFiles()
+        
         
     def postProcess(self):
         
@@ -173,11 +174,11 @@ class EmulatorData(PostProcessingMetaData):
         
     
         
-    def __init__getPhase01(self):
+    def __prepare__getPhase01(self):
         assert(self.phase01CSVFile.is_file())
         self.phase01 = pandas.read_csv(self.phase01CSVFile, index_col=0)
     
-    def __init__getDesignVariableNames(self):
+    def __prepare__getDesignVariableNames(self):
         self.meteorologicalVariables = ["q_inv", "tpot_inv", "lwp", "tpot_pbl", "pblh"]
         
         self.microphysics = self.ID_prefix[0]
@@ -196,7 +197,7 @@ class EmulatorData(PostProcessingMetaData):
             
         self.designVariableNames = self.meteorologicalVariables + self.microphysicsVariables + self.timeOfDayVariable
     
-    def __init__getResponseFromTrainingSimulations(self):
+    def __prepare__getResponseFromTrainingSimulations(self):
         
         if pathlib.Path( self.responseFromTrainingSimulationsCSVFile).is_file():
              self.responseFromTrainingSimulations = pandas.read_csv(self.responseFromTrainingSimulationsCSVFile, index_col=0)
@@ -207,14 +208,14 @@ class EmulatorData(PostProcessingMetaData):
         
         return self.responseFromTrainingSimulations
     
-    def __init__setSimulationCompleteDataFromDesignAndTraining(self):
+    def __prepare__setSimulationCompleteDataFromDesignAndTraining(self):
         
         self.simulationCompleteData = pandas.merge(self.phase01, self.responseFromTrainingSimulations,on = "ID", how="left")
         
-    def __init__setResponseIndicatorFilteredData(self):
+    def __prepare__setResponseIndicatorFilteredData(self):
         self.simulationCompleteData[self.responseIndicatorVariable] = float(self.responseIndicator)        
 
-    def __init__filter(self):
+    def __prepare__filter(self):
         
         self.__filterAllConditions()
         
@@ -241,14 +242,14 @@ class EmulatorData(PostProcessingMetaData):
                 self.conditions[key] = eval("self.simulationCompleteData." + key + self.filteringVariablesWithConditions[key])
         print(self.conditions)
         
-    def __init__saveFilteredDataExeMode(self):
+    def __prepare__saveFilteredDataExeMode(self):
         
         self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
         
-    def __init__saveFilteredDataRMode(self):
+    def __prepare__saveFilteredDataRMode(self):
         self.simulationFilteredCSV.to_csv(self.filteredFile)
     
-    def __init__saveOmittedData(self):
+    def __prepare__saveOmittedData(self):
         
         for ind in self.simulationFilteredData.index:
             folder = (self.exeDataFolder / str(ind) )
@@ -260,7 +261,7 @@ class EmulatorData(PostProcessingMetaData):
             predict = self.simulationFilteredData.loc[ind].values
             numpy.savetxt( folder / ("DATA_predict_" + ind), predict, fmt="%017.11e", newline = " ")
             
-    def __init__saveNamelists(self):
+    def __fortranEmulator__saveNamelists(self):
         
         
         
@@ -288,7 +289,7 @@ class EmulatorData(PostProcessingMetaData):
                 f90nml.write(predictNML, predictNMLFile)
                 
                 
-    def __init__saveYAMLconfigFiles(self):
+    def __pythonEmulator__saveYAMLconfigFiles(self):
         
         for ind in self.simulationFilteredData.index:
             folder = (self.exeDataFolder / str(ind) )
@@ -300,14 +301,14 @@ class EmulatorData(PostProcessingMetaData):
             
             FileSystem.writeYAML(folder / "config.yaml", configuration)
             
-    def __init__linkExecutables(self):
+    def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
             folder = (self.exeDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
             run(["ln","-sf", os.environ["GPPREDICTEMULATOR"], folder / "gp_predict"])
     
-    def __init__getExeFolderList(self):
+    def __prepare__getExeFolderList(self):
         indexGroup = self.simulationFilteredData.index.values
         
         self.exeFolderList = [ iterab[0] / iterab[1] for iterab in itertools.product([self.exeDataFolder], indexGroup) ]
@@ -326,7 +327,7 @@ class EmulatorData(PostProcessingMetaData):
         
         return pathlib.Path("DATA_predict_output_" + ind)
         
-    def runTrain(self):
+    def __fortranEmulator__runTrain(self):
         
         try:
             pool = multiprocessing.Pool(processes = self.numCores)
@@ -356,7 +357,7 @@ class EmulatorData(PostProcessingMetaData):
             print("runTrain", folder)
             run([ "./gp_train"])
 
-    def runPredictionParallel(self):
+    def __fortranEmulator__runPredictionParallel(self):
         
         try:
             pool = multiprocessing.Pool(processes = self.numCores)
@@ -460,10 +461,10 @@ class EmulatorData(PostProcessingMetaData):
                 print("case", ind, "relative error", relativeError)
                 self.allIsWell = False
                 
-    def _getSimulationCollection(self):
+    def __prepare__getSimulationCollection(self):
         self.simulationCollection = InputSimulation.getSimulationCollection( self.simulationCompleteData )
         
-    def _filterGetOutlierDataFromLESoutput(self):
+    def __prepare__filterGetOutlierDataFromLESoutput(self):
     
         dataframe = self.simulationCompleteData
         collection = self.simulationCollection
