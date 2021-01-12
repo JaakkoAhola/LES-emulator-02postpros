@@ -148,6 +148,8 @@ class EmulatorData(PostProcessingMetaData):
         
         self.__pythonEmulator__saveYAMLconfigFiles()
         
+        self.__pythonEmulator__linkExecutables()
+        
         
     def postProcess(self):
         
@@ -300,6 +302,12 @@ class EmulatorData(PostProcessingMetaData):
                           "predictionOutputFile" : str(folder / ("DATA_predict_output_" + ind)),}
             
             FileSystem.writeYAML(folder / "config.yaml", configuration)
+            
+    def __pythonEmulator__linkExecutables(self):
+        for ind in self.simulationFilteredData.index:
+            folder = (self.exeDataFolder / str(ind) )
+            folder.mkdir( parents=True, exist_ok = True )
+            run(["ln","-sf", os.environ["PYTHONEMULATOR"], folder / "CloudEmulatorInterface.py"])
             
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
