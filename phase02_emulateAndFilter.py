@@ -307,7 +307,11 @@ class EmulatorData(PostProcessingMetaData):
         for ind in self.simulationFilteredData.index:
             folder = (self.exeDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
-            run(["ln","-sf", os.environ["PYTHONEMULATOR"], folder / "CloudEmulatorInterface.py"])
+            
+            pythonEmulatorFolder = pathlib.Path( os.environ["PYTHONEMULATOR"] )
+            
+            for pythonFile in pythonEmulatorFolder.glob("**/*.py"):
+                run(["ln","-sf", pythonFile, folder / pythonFile.name ])
             
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
