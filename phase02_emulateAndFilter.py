@@ -24,7 +24,7 @@ import os
 import sys
 from scipy import stats
 import LES2emu
-import f90nml
+#import f90nml
 from subprocess import run
 
 
@@ -114,7 +114,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.__prepare__getSimulationCollection()
 
-        self.__prepare__filterGetOutlierDataFromLESoutput()
+        #self.__prepare__filterGetOutlierDataFromLESoutput()
 
         self.__prepare__filter()
 
