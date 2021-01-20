@@ -29,31 +29,37 @@ from subprocess import run
 
 
 sys.path.append(os.environ["LESMAINSCRIPTS"])
+
 from Data import Data
 from InputSimulation import InputSimulation
 from FileSystem import FileSystem
 
 from PostProcessingMetaData import PostProcessingMetaData
 
+sys.path.append(os.environ["PYTHONEMULATOR"])
+from GaussianEmulator import GaussianEmulator
+
 class EmulatorData(PostProcessingMetaData):
 
     def __init__(self, name : str,
                  trainingSimulationRootFolder : list,
                  dataOutputRootFolder : list,
-                 inputYAMLFile : str
+                 inputConfigFile : str
                  ):
         # responseVariable : str,
         #          filteringVariablesWithConditions : dict,
         #          responseIndicator = 0
         super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder)
 
-        self.inputYAMLFile = inputYAMLFile
+        self.inputConfigFile = inputConfigFile
 
-        self._handleYAML()
+        self._handleConfigFile()
 
-        self.responseVariable = self.yamlDictionary["responseVariable"]
+        self.responseVariable = self.configFile["responseVariable"]
 
-        self.useFortran = self.yamlDictionary["useFortran"]
+        self.useFortran = self.configFile["useFortran"]
+        
+        self.override = self.configFile["override"]
 
         self.simulatedVariable = self.responseVariable + "_Simulated"
 
@@ -61,11 +67,11 @@ class EmulatorData(PostProcessingMetaData):
 
         self.linearFitVariable = self.responseVariable + "_LinearFit"
 
-        self.filteringVariablesWithConditions = self.yamlDictionary["filteringVariablesWithConditions"]
+        self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
 
         self.testIfResponseVariableIsInFilter()
 
-        self.responseIndicator = self.yamlDictionary[self.responseIndicatorVariable]
+        self.responseIndicator = self.configFile[self.responseIndicatorVariable]
 
         self.numCores = multiprocessing.cpu_count()
 
@@ -79,32 +85,54 @@ class EmulatorData(PostProcessingMetaData):
         self.timeEnd = 3.5
 
         self.toleranceForInEqualConditions = 0.1
+        
+        self.renameFilterIndex()
 
         self.exeDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
 
 
-        FileSystem.makeFolder( self.exeDataFolder )
+        if self.useFortran: FileSystem.makeFolder( self.exeDataFolder )
+        
+        self.__prepare__getDesignVariableNames()
 
-    def _handleYAML(self):
-        self.__readYAML()
-        self.__testYAML()
+    def _handleConfigFile(self):
+        self._readConfigFile()
+        self._testConfigFile()
 
-    def __readYAML(self):
-        self.yamlDictionary = FileSystem.readYAML(self.inputYAMLFile)
-    def __testYAML(self):
+    def _readConfigFile(self):
+        self.configFile = FileSystem.readYAML(self.inputConfigFile)
+    def _testConfigFile(self):
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
-            assert(key in self.yamlDictionary)
+            assert(key in self.configFile)
 
     def testIfResponseVariableIsInFilter(self):
         assert(self.responseVariable in self.filteringVariablesWithConditions)
+        
+    def renameFilterIndex(self):
+        st="responseVariable" + self.configFile["responseVariable"] + ":"
+        for key in self.configFile["filteringVariablesWithConditions"]:
+            st = st + key + self.configFile["filteringVariablesWithConditions"][key] + ";"
+        
+        self.filterIndex = st + "."
 
     def setToleranceForInEqualConditions(self, tolerance):
         self.toleranceForInEqualConditions = tolerance
 
     def prepare(self):
+        if self.completeFile.is_file():
+            # File exists, lets override or read the file
+            
+            if self.override:
+                self._prepare_override()
+            else:
+                self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)    
+            
+        else:
+            self._prepare_override()
+            
+    def _prepare_override(self):
+                
         self.__prepare__getPhase01()
-
-        self.__prepare__getDesignVariableNames()
 
         self.__prepare__getResponseFromTrainingSimulations()
 
@@ -117,14 +145,16 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__filterGetOutlierDataFromLESoutput()
 
         self.__prepare__filter()
+        
+        self._fillUpDrflxValues()
 
-        self.__prepare__saveFilteredDataExeMode()
+        if self.useFortran: self.__prepare__saveFilteredDataExeMode()
 
         self.__prepare__saveFilteredDataRMode()
 
-        self.__prepare__saveOmittedData()
+        if self.useFortran: self.__prepare__saveOmittedData()
 
-        self.__prepare__getExeFolderList()
+        if self.useFortran: self.__prepare__getExeFolderList()
 
     def runEmulator(self):
 
@@ -145,19 +175,12 @@ class EmulatorData(PostProcessingMetaData):
         self.__fortranEmulator__runPredictionParallel()
 
     def __runPythonEmulator(self):
-
-        self.__pythonEmulator__saveYAMLconfigFiles()
-
-        self.__pythonEmulator__linkExecutables()
-
+        self.__pythonEmulator__leaveOneOutPython()
+        
 
     def postProcess(self):
 
-        self.collectSimulatedVSPredictedData()
-
-        self._fillUpDrflxValues()
-
-        # self._getWeightedUpdraft()
+        if self.useFortran: self.collectSimulatedVSPredictedDataFortran()
 
         self._getAnomalyLimitsQuantile()
         self._getAnomalyLimitsConstant()
@@ -309,6 +332,27 @@ class EmulatorData(PostProcessingMetaData):
 
             for pythonFile in pythonEmulatorFolder.glob("**/*.py"):
                 run(["ln","-sf", pythonFile, folder / pythonFile.name ])
+                
+    def __pythonEmulator__leaveOneOutPython(self):
+        
+        leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
+        for ind in self.simulationFilteredData.index:
+            train = self.simulationFilteredData.drop(ind).values
+            emulator = GaussianEmulator(train)
+            
+            emulator.main()
+            
+            predict = self.simulationFilteredData.loc[ind].values[:,:-2]
+            emulator.predictEmulator( predict )
+            
+            emulatedValue = emulator.getPredictions()
+            
+            leaveOneOutArray[ind] = emulatedValue
+        
+        self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
+        
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
+            
 
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
@@ -405,7 +449,7 @@ class EmulatorData(PostProcessingMetaData):
 
 
 
-    def collectSimulatedVSPredictedData(self):
+    def collectSimulatedVSPredictedDataFortran(self):
         datadict = {self.simulatedVariable: [],
                     self.emulatedVariable: []}
 
@@ -676,7 +720,7 @@ class EmulatorData(PostProcessingMetaData):
     def _getLeaveOneOut(self):
         dataframe = self.simulationCompleteData
 
-        dataframe["leaveOneOutIndex"]  = dataframe["wpos"] != -999
+        dataframe["leaveOneOutIndex"]  = dataframe[self.filterIndex]
 
         dataframe = dataframe.loc[dataframe["leaveOneOutIndex"]]
 
@@ -695,21 +739,9 @@ class EmulatorData(PostProcessingMetaData):
 
         dataframe = self.simulationCompleteData
 
-        # dataframe = dataframe.loc[ dataframe[self.responseVariable] != self.filterValue]
-
-        extraFilterCondition =  {}
-        #extra conditions
-        extraFilterCondition["tpot_inv"] = dataframe["tpot_inv"] > 5
-        extraFilterCondition["lwpEndValue"] = dataframe["lwpEndValue"] > 10.
-        extraFilterCondition["cfracEndValue"] = dataframe["cfracEndValue"] > 0.9
-        extraFilterCondition["prcp"] =  dataframe["prcp"] < 1e-6
-
-
-        self.simulationCompleteData["linearFitIndex"] = Data.getAllConditions(extraFilterCondition)
-
-        filterOutPoints = False
-        if filterOutPoints:
-            dataframe = dataframe.loc[dataframe["linearFitIndex"]]
+        dataframe["linearFitIndex"] = dataframe[self.filterIndex]
+        
+        dataframe = dataframe.loc[dataframe["linearFitIndex"]]
 
         radiativeWarming  = dataframe["drflx"].values
         updraft =  dataframe[ self.responseVariable ].values
@@ -746,35 +778,35 @@ class EmulatorData(PostProcessingMetaData):
 def main():
 
     rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
-    inputYamlFile = os.environ["EMULATORINPUTYAML"]
+    rootFolderOfDataOutputs = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData"
+    inputConfigFile = os.environ["EMULATORINPUTYAML"]
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
                                              [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
                                              [rootFolderOfDataOutputs],
-                                             inputYamlFile
+                                             inputConfigFile
                                              ),
                 "LVL3Day"   :  EmulatorData( "LVL3Day",
                                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
                                             [rootFolderOfDataOutputs],
-                                            inputYamlFile
+                                            inputConfigFile
                                             ),
                 "LVL4Night" :  EmulatorData("LVL4Night",
                                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
                                             [rootFolderOfDataOutputs],
-                                            inputYamlFile
+                                            inputConfigFile
                                             ),
                 "LVL4Day"   : EmulatorData("LVL4Day",
                                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
                                             [rootFolderOfDataOutputs],
-                                            inputYamlFile
+                                            inputConfigFile
                                             )
                 }
 
     for key in emulatorSets:
         emulatorSets[key].prepare()
-        emulatorSets[key].runEmulator()
+        #emulatorSets[key].runEmulator()
         #emulatorSets[key].postProcess()
 
 if __name__ == "__main__":
