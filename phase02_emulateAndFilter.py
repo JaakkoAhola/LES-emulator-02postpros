@@ -142,7 +142,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.__prepare__getSimulationCollection()
 
-        #self.__prepare__filterGetOutlierDataFromLESoutput()
+        self.__prepare__filterGetOutlierDataFromLESoutput()
 
         self.__prepare__filter()
         
@@ -777,9 +777,9 @@ class EmulatorData(PostProcessingMetaData):
 
 def main():
 
-    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData"
-    inputConfigFile = os.environ["EMULATORINPUTYAML"]
+    rootFolderOfEmulatorSets = "/fmi/scratch/project_2001927/aholaj/eclair_training_simulations"
+    rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
+    inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -805,8 +805,8 @@ def main():
                 }
 
     for key in emulatorSets:
-        emulatorSets[key].prepare()
-        #emulatorSets[key].runEmulator()
+        #emulatorSets[key].prepare()
+        emulatorSets[key].runEmulator()
         #emulatorSets[key].postProcess()
 
 if __name__ == "__main__":
