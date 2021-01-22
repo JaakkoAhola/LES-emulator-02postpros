@@ -24,8 +24,13 @@ import os
 import sys
 from scipy import stats
 import LES2emu
-#import f90nml
 from subprocess import run
+
+try:
+    import f90nml
+    fortranModePossible = True
+except ModuleNotFoundError:
+    fortranModePossible = False
 
 
 sys.path.append(os.environ["LESMAINSCRIPTS"])
@@ -58,6 +63,9 @@ class EmulatorData(PostProcessingMetaData):
         self.responseVariable = self.configFile["responseVariable"]
 
         self.useFortran = self.configFile["useFortran"]
+        
+        if self.useFortran:
+            assert(fortranModePossible)
         
         self.override = self.configFile["override"]
 
@@ -798,9 +806,9 @@ class EmulatorData(PostProcessingMetaData):
 
 def main():
 
-    rootFolderOfEmulatorSets = "/fmi/scratch/project_2001927/aholaj/eclair_training_simulations"
-    rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
-    inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
+    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
+    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData"
+    inputConfigFile = os.environ["EMULATORINPUTYAML"]
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -826,7 +834,7 @@ def main():
                 }
 
     for key in emulatorSets:
-        #emulatorSets[key].prepare()
+        emulatorSets[key].prepare()
         emulatorSets[key].runEmulator()
         #emulatorSets[key].postProcess()
 
