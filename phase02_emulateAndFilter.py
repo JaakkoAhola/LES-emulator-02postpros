@@ -72,6 +72,8 @@ class EmulatorData(PostProcessingMetaData):
         self.testIfResponseVariableIsInFilter()
 
         self.responseIndicator = self.configFile[self.responseIndicatorVariable]
+        
+        self.bootstrappingParameters = self.configFile[ "bootStrap" ]
 
         self.numCores = multiprocessing.cpu_count()
 
@@ -123,11 +125,14 @@ class EmulatorData(PostProcessingMetaData):
             # File exists, lets override or read the file
             
             if self.override:
+                print("File exists, but let's override")
                 self._prepare_override()
             else:
+                print("File exists, let's read it")
                 self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)    
             
         else:
+            print("File does not exist, let's create it")
             self._prepare_override()
             
     def _prepare_override(self):
@@ -155,6 +160,8 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__saveOmittedData()
 
         if self.useFortran: self.__prepare__getExeFolderList()
+        
+        self.finalise()
 
     def runEmulator(self):
 
@@ -162,8 +169,9 @@ class EmulatorData(PostProcessingMetaData):
             self.__runFortranEmulator()
         else:
             self.__runPythonEmulator()
-
-
+        
+        self.finalise()
+        
     def __runFortranEmulator(self):
 
         self.__fortranEmulator__saveNamelists()
@@ -336,23 +344,36 @@ class EmulatorData(PostProcessingMetaData):
     def __pythonEmulator__leaveOneOutPython(self):
         
         leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
-        for ind in self.simulationFilteredData.index:
-            train = self.simulationFilteredData.drop(ind).values
-            emulator = GaussianEmulator(train)
+        print("Emulating", self.name)
+        maxiter = 30000
+        n_restarts_optimizer=10
+        t1 = time.time()
+        for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
+            train = self.simulationFilteredData.drop(indexName).values
+            emulator = GaussianEmulator( train, maxiter = maxiter, n_restarts_optimizer = n_restarts_optimizer )
             
             emulator.main()
             
-            predict = self.simulationFilteredData.loc[ind].values[:,:-2]
+            predict = self.simulationFilteredData.loc[indexName].values[:-2].reshape(1,-1)
             emulator.predictEmulator( predict )
             
-            emulatedValue = emulator.getPredictions()
+            emulatedValue = emulator.getPredictions().item()
+            leaveOneOutArray[indexValue] = emulatedValue
             
-            leaveOneOutArray[ind] = emulatedValue
+            print(f"{indexName}, emulation: {emulatedValue}")
+        
+        t2 = time.time()
+        timepercase = (t2 -t1) / (indexValue +1 )
+        print(f"EMulating completed, {self.name}. Time to calculate updrafts {t2-t1:.1f}, avg. {timepercase}, maxiter: {maxiter}, n_restarts_optimizer: {n_restarts_optimizer}")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
         self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
             
+    def __pythonEmulator_bootstrap(self):
+        
+        bootstrapRsquared = numpy.empty( self.simulationFilteredData.index.shape )
+        print("Bootstrapping")
 
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
@@ -787,21 +808,21 @@ def main():
                                              [rootFolderOfDataOutputs],
                                              inputConfigFile
                                              ),
-                "LVL3Day"   :  EmulatorData( "LVL3Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
-                                            ),
-                "LVL4Night" :  EmulatorData("LVL4Night",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
-                                            ),
-                "LVL4Day"   : EmulatorData("LVL4Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
-                                            )
+                # "LVL3Day"   :  EmulatorData( "LVL3Day",
+                #                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
+                #                             [rootFolderOfDataOutputs],
+                #                             inputConfigFile
+                #                             ),
+                # "LVL4Night" :  EmulatorData("LVL4Night",
+                #                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
+                #                             [rootFolderOfDataOutputs],
+                #                             inputConfigFile
+                #                             ),
+                # "LVL4Day"   : EmulatorData("LVL4Day",
+                #                             [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
+                #                             [rootFolderOfDataOutputs],
+                #                             inputConfigFile
+                #                             )
                 }
 
     for key in emulatorSets:
