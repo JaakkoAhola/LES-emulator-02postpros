@@ -24,8 +24,13 @@ import os
 import sys
 from scipy import stats
 import LES2emu
-import f90nml
 from subprocess import run
+
+try:
+    import f90nml
+    fortranModePossible = True
+except ModuleNotFoundError:
+    fortranModePossible = False
 
 
 sys.path.append(os.environ["LESMAINSCRIPTS"])
@@ -58,6 +63,9 @@ class EmulatorData(PostProcessingMetaData):
         self.responseVariable = self.configFile["responseVariable"]
 
         self.useFortran = self.configFile["useFortran"]
+        
+        if self.useFortran:
+            assert(fortranModePossible)
         
         self.override = self.configFile["override"]
 
