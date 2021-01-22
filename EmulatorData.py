@@ -137,11 +137,39 @@ class EmulatorData(PostProcessingMetaData):
                 self._prepare_override()
             else:
                 print("File exists, let's read it")
-                self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)    
+                self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)
+                if self.filterIndex in self.simulationCompleteData.columns:
+                    self.__prepare_CompleteDataPreExisted()
+                else:
+                    self.__prepare_appendNewFilterIndexToCompleteData()
             
         else:
             print("File does not exist, let's create it")
             self._prepare_override()
+    def __prepare_CompleteDataPreExisted(self):
+        self.__prepare__filter()
+        self.__prepare__getSimulationCollection()
+            
+    def __prepare_appendNewFilterIndexToCompleteData(self):
+        self.__prepare__setResponseIndicatorFilteredData()
+        
+        self.__prepare__getSimulationCollection()
+        
+        self.__prepare__filterGetOutlierDataFromLESoutput()
+        
+        self.__prepare__filter()
+        
+        self._fillUpDrflxValues()
+
+        if self.useFortran: self.__prepare__saveFilteredDataExeMode()
+
+        self.__prepare__saveFilteredDataRMode()
+
+        if self.useFortran: self.__prepare__saveOmittedData()
+
+        if self.useFortran: self.__prepare__getExeFolderList()
+        
+        self.finalise()
             
     def _prepare_override(self):
                 
