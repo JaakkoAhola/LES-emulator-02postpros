@@ -40,7 +40,7 @@ def main():
                 }
 
     for key in emulatorSets:
-        #emulatorSets[key].prepare()
+        emulatorSets[key].prepare()
         emulatorSets[key].runEmulator()
         #emulatorSets[key].postProcess()
 if __name__ == "__main__":
