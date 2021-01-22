@@ -68,7 +68,9 @@ class EmulatorData(PostProcessingMetaData):
             assert(fortranModePossible)
         
         self.override = self.configFile["override"]
-
+        
+        self._readOptimizationConfigs()
+        
         self.simulatedVariable = self.responseVariable + "_Simulated"
 
         self.emulatedVariable = self.responseVariable + "_Emulated"
@@ -114,6 +116,17 @@ class EmulatorData(PostProcessingMetaData):
     def _testConfigFile(self):
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
             assert(key in self.configFile)
+    
+    def _readOptimizationConfigs(self):
+        try:
+            self.optimization = self.configFile["optimization"]
+            
+            assert( "maxiter" in self.optimization.keys())
+            assert( "n_restarts_optimizer" in self.optimization.keys())
+            
+        except KeyError:
+            self.optimization = {"maxiter" : 15000,
+                                 "n_restarts_optimizer" : 10}
 
     def testIfResponseVariableIsInFilter(self):
         assert(self.responseVariable in self.filteringVariablesWithConditions)
@@ -380,13 +393,13 @@ class EmulatorData(PostProcessingMetaData):
     def __pythonEmulator__leaveOneOutPython(self):
         
         leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
-        print("Emulating", self.name)
+        print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         maxiter = 30000
         n_restarts_optimizer=10
         t1 = time.time()
         for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
             train = self.simulationFilteredData.drop(indexName).values
-            emulator = GaussianEmulator( train, maxiter = maxiter, n_restarts_optimizer = n_restarts_optimizer )
+            emulator = GaussianEmulator( train, maxiter = self.optimization["maxiter"], n_restarts_optimizer = self.optimization["n_restarts_optimizer"] )
             
             emulator.main()
             
