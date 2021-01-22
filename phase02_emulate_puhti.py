@@ -12,9 +12,9 @@ from EmulatorData import EmulatorData
 
 def main():
 
-    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = "/home/aholaj/Data/EmulatorManuscriptData"
-    inputConfigFile = os.environ["EMULATORINPUTYAML"]
+    rootFolderOfEmulatorSets = "/fmi/scratch/project_2001927/aholaj/eclair_training_simulations"
+    rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
+    inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -40,7 +40,7 @@ def main():
                 }
 
     for key in emulatorSets:
-        emulatorSets[key].prepare()
+        #emulatorSets[key].prepare()
         emulatorSets[key].runEmulator()
         #emulatorSets[key].postProcess()
 if __name__ == "__main__":
