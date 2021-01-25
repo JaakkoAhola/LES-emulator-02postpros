@@ -78,6 +78,8 @@ class EmulatorData(PostProcessingMetaData):
         self.linearFitVariable = self.responseVariable + "_LinearFit"
 
         self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
+        
+        self.boundOrdo = self.configFile["boundOrdo"]
 
         self.testIfResponseVariableIsInFilter()
 
@@ -399,7 +401,10 @@ class EmulatorData(PostProcessingMetaData):
         t1 = time.time()
         for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
             train = self.simulationFilteredData.drop(indexName).values
-            emulator = GaussianEmulator( train, maxiter = self.optimization["maxiter"], n_restarts_optimizer = self.optimization["n_restarts_optimizer"] )
+            emulator = GaussianEmulator( train, 
+                                        maxiter = self.optimization["maxiter"],
+                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"]
+                                        boundOrdo = self.boundOrdo)
             
             emulator.main()
             
