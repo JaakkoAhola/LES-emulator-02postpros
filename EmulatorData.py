@@ -63,14 +63,14 @@ class EmulatorData(PostProcessingMetaData):
         self.responseVariable = self.configFile["responseVariable"]
 
         self.useFortran = self.configFile["useFortran"]
-
+        
         if self.useFortran:
             assert(fortranModePossible)
-
+        
         self.override = self.configFile["override"]
-
+        
         self._readOptimizationConfigs()
-
+        
         self.simulatedVariable = self.responseVariable + "_Simulated"
 
         self.emulatedVariable = self.responseVariable + "_Emulated"
@@ -78,11 +78,13 @@ class EmulatorData(PostProcessingMetaData):
         self.linearFitVariable = self.responseVariable + "_LinearFit"
 
         self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
+        
+        self.boundOrdo = self.configFile["boundOrdo"]
 
         self.testIfResponseVariableIsInFilter()
 
         self.responseIndicator = self.configFile[self.responseIndicatorVariable]
-
+        
         self.bootstrappingParameters = self.configFile[ "bootStrap" ]
 
         self.numCores = multiprocessing.cpu_count()
@@ -97,14 +99,14 @@ class EmulatorData(PostProcessingMetaData):
         self.timeEnd = 3.5
 
         self.toleranceForInEqualConditions = 0.1
-
+        
         self.renameFilterIndex()
 
         self.exeDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
 
 
         if self.useFortran: FileSystem.makeFolder( self.exeDataFolder )
-
+        
         self.__prepare__getDesignVariableNames()
 
     def _handleConfigFile(self):
@@ -116,26 +118,26 @@ class EmulatorData(PostProcessingMetaData):
     def _testConfigFile(self):
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
             assert(key in self.configFile)
-
+    
     def _readOptimizationConfigs(self):
         try:
             self.optimization = self.configFile["optimization"]
-
+            
             assert( "maxiter" in self.optimization.keys())
             assert( "n_restarts_optimizer" in self.optimization.keys())
-
+            
         except KeyError:
             self.optimization = {"maxiter" : 15000,
                                  "n_restarts_optimizer" : 10}
 
     def testIfResponseVariableIsInFilter(self):
         assert(self.responseVariable in self.filteringVariablesWithConditions)
-
+        
     def renameFilterIndex(self):
         st="responseVariable" + self.configFile["responseVariable"] + ":"
         for key in self.configFile["filteringVariablesWithConditions"]:
             st = st + key + self.configFile["filteringVariablesWithConditions"][key] + ";"
-
+        
         self.filterIndex = st + "."
 
     def setToleranceForInEqualConditions(self, tolerance):
@@ -144,40 +146,34 @@ class EmulatorData(PostProcessingMetaData):
     def prepare(self):
         if self.completeFile.is_file():
             # File exists, lets override or read the file
-
+            
             if self.override:
                 print("File exists, but let's override")
                 self._prepare_override()
             else:
                 print("File exists, let's read it")
                 self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)
-
-                print("columns names", self.simulationCompleteData.columns)
-
-                print("self.filterIndex", self.filterIndex)
-
-
                 if self.filterIndex in self.simulationCompleteData.columns:
                     self.__prepare_CompleteDataPreExisted()
                 else:
                     self.__prepare_appendNewFilterIndexToCompleteData()
-
+            
         else:
             print("File does not exist, let's create it")
             self._prepare_override()
     def __prepare_CompleteDataPreExisted(self):
         self.__prepare__filter()
         self.__prepare__getSimulationCollection()
-
+            
     def __prepare_appendNewFilterIndexToCompleteData(self):
         self.__prepare__setResponseIndicatorFilteredData()
-
+        
         self.__prepare__getSimulationCollection()
-
+        
         self.__prepare__filterGetOutlierDataFromLESoutput()
-
+        
         self.__prepare__filter()
-
+        
         self._fillUpDrflxValues()
 
         if self.useFortran: self.__prepare__saveFilteredDataExeMode()
@@ -187,11 +183,11 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__saveOmittedData()
 
         if self.useFortran: self.__prepare__getExeFolderList()
-
+        
         self.finalise()
-
+            
     def _prepare_override(self):
-
+                
         self.__prepare__getPhase01()
 
         self.__prepare__getResponseFromTrainingSimulations()
@@ -205,7 +201,7 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__filterGetOutlierDataFromLESoutput()
 
         self.__prepare__filter()
-
+        
         self._fillUpDrflxValues()
 
         if self.useFortran: self.__prepare__saveFilteredDataExeMode()
@@ -215,7 +211,7 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__saveOmittedData()
 
         if self.useFortran: self.__prepare__getExeFolderList()
-
+        
         self.finalise()
 
     def runEmulator(self):
@@ -239,7 +235,7 @@ class EmulatorData(PostProcessingMetaData):
 
     def __runPythonEmulator(self):
         self.__pythonEmulator__leaveOneOutPython()
-
+        
 
     def postProcess(self):
 
@@ -395,9 +391,9 @@ class EmulatorData(PostProcessingMetaData):
 
             for pythonFile in pythonEmulatorFolder.glob("**/*.py"):
                 run(["ln","-sf", pythonFile, folder / pythonFile.name ])
-
+                
     def __pythonEmulator__leaveOneOutPython(self):
-
+        
         leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
         print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         maxiter = 30000
@@ -405,28 +401,31 @@ class EmulatorData(PostProcessingMetaData):
         t1 = time.time()
         for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
             train = self.simulationFilteredData.drop(indexName).values
-            emulator = GaussianEmulator( train, maxiter = self.optimization["maxiter"], n_restarts_optimizer = self.optimization["n_restarts_optimizer"] )
-
+            emulator = GaussianEmulator( train, 
+                                        maxiter = self.optimization["maxiter"],
+                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"]
+                                        boundOrdo = self.boundOrdo)
+            
             emulator.main()
-
+            
             predict = self.simulationFilteredData.loc[indexName].values[:-2].reshape(1,-1)
             emulator.predictEmulator( predict )
-
+            
             emulatedValue = emulator.getPredictions().item()
             leaveOneOutArray[indexValue] = emulatedValue
-
+            
             print(f"{indexName}, emulation: {emulatedValue}")
-
+        
         t2 = time.time()
         timepercase = (t2 -t1) / (indexValue +1 )
         print(f"EMulating completed, {self.name}. Time to calculate updrafts {t2-t1:.1f}, avg. {timepercase}, maxiter: {maxiter}, n_restarts_optimizer: {n_restarts_optimizer}")
-
+        
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
-
+        
         self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
-
+            
     def __pythonEmulator_bootstrap(self):
-
+        
         bootstrapRsquared = numpy.empty( self.simulationFilteredData.index.shape )
         print("Bootstrapping")
 
@@ -816,7 +815,7 @@ class EmulatorData(PostProcessingMetaData):
         dataframe = self.simulationCompleteData
 
         dataframe["linearFitIndex"] = dataframe[self.filterIndex]
-
+        
         dataframe = dataframe.loc[dataframe["linearFitIndex"]]
 
         radiativeWarming  = dataframe["drflx"].values
