@@ -396,14 +396,12 @@ class EmulatorData(PostProcessingMetaData):
         
         leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
         print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
-        maxiter = 30000
-        n_restarts_optimizer=10
         t1 = time.time()
         for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
             train = self.simulationFilteredData.drop(indexName).values
             emulator = GaussianEmulator( train, 
                                         maxiter = self.optimization["maxiter"],
-                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"]
+                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
                                         boundOrdo = self.boundOrdo)
             
             emulator.main()
@@ -414,11 +412,21 @@ class EmulatorData(PostProcessingMetaData):
             emulatedValue = emulator.getPredictions().item()
             leaveOneOutArray[indexValue] = emulatedValue
             
-            print(f"{indexName}, emulation: {emulatedValue}")
+            print(f"{indexName}, emulation: {emulatedValue}: \
+                  simulation: {self.simulationFilteredData.loc[indexName][self.responseVariable]}")
+        
+        rmse = numpy.sqrt( numpy.sum( numpy.power(self.simulationFilteredData[self.responseVariable].values[:indexValue] \
+                - leaveOneOutArray[:indexValue],2 )))
         
         t2 = time.time()
         timepercase = (t2 -t1) / (indexValue +1 )
-        print(f"EMulating completed, {self.name}. Time to calculate updrafts {t2-t1:.1f}, avg. {timepercase}, maxiter: {maxiter}, n_restarts_optimizer: {n_restarts_optimizer}")
+        print(f"""Emulating completed, {self.name}
+Time to calculate updrafts {t2-t1:.1f},
+avg. {timepercase},
+maxiter: {self.optimization['maxiter']},
+n_restarts_optimizer: {self.optimization['n_restarts_optimizer']},
+boundOrdo: {self.boundOrdo:.0e}
+rmse: {rmse:.2f}""")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
