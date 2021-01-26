@@ -8,13 +8,13 @@ Created on Fri Jan 22 12:23:51 2021
 """
 print(__doc__)
 import time
+import sys
 from EmulatorData import EmulatorData
 
-def main():
+def main(inputConfigFile):
 
     rootFolderOfEmulatorSets = "/fmi/scratch/project_2001927/aholaj/eclair_training_simulations"
     rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
-    inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
@@ -45,6 +45,13 @@ def main():
         #emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
-    main()
+    try:
+        inputConfigFile = sys.argv[1]
+    except IndexError:
+        inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
+    print("inputConfigFile", inputConfigFile)
+
+    main(inputConfigFile)
+    
     end = time.time()
     print(f"\nScript completed in { end - start : .1f} seconds")
