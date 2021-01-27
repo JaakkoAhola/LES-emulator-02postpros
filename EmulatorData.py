@@ -425,7 +425,7 @@ Time to calculate updrafts {t2-t1:.1f},
 avg. {timepercase},
 maxiter: {self.optimization['maxiter']},
 n_restarts_optimizer: {self.optimization['n_restarts_optimizer']},
-boundOrdo: {self.boundOrdo:.0e}
+boundOrdo: self.boundOrdo,
 rmse: {rmse:.2f}""")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
@@ -435,6 +435,7 @@ rmse: {rmse:.2f}""")
     def __pythonEmulator_bootstrap(self):
         
         bootstrapRsquared = numpy.empty( self.simulationFilteredData.index.shape )
+        bootstrapRMSE = numpy.empty( self.simulationFilteredData.index.shape )
         print("Bootstrapping")
 
     def __fortranEmulator__linkExecutables(self):
