@@ -136,7 +136,7 @@ class EmulatorData(PostProcessingMetaData):
         
     def renameFilterIndex(self):
         st="responseVariable" + self.configFile["responseVariable"] + ":"
-        for key in self.configFile["filteringVariablesWithConditions"]:
+        for key in sorted(self.configFile["filteringVariablesWithConditions"]):
             st = st + key + self.configFile["filteringVariablesWithConditions"][key] + ";"
         
         self.filterIndex = st + "."
@@ -399,18 +399,7 @@ class EmulatorData(PostProcessingMetaData):
         print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         t1 = time.time()
         for indexValue, indexName in enumerate(self.simulationFilteredData.index):
-            train = self.simulationFilteredData.drop(indexName).values
-            emulator = GaussianEmulator( train, 
-                                        maxiter = self.optimization["maxiter"],
-                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
-                                        boundOrdo = self.boundOrdo)
-            
-            emulator.main()
-            
-            predict = self.simulationFilteredData.loc[indexName].values[:-2].reshape(1,-1)
-            emulator.predictEmulator( predict )
-            
-            emulatedValue = emulator.getPredictions().item()
+            emulatedValue = self.__leaveOneOut(self.simulationFilteredData, indexName)
             leaveOneOutArray[indexValue] = emulatedValue
             
             print(f"{indexName}, emulation: {emulatedValue}: \
@@ -458,18 +447,10 @@ rmse: {rmse:.2f}""")
             
             leaveOneOutArray = numpy.empty( sampleDF.index.shape )
             
-            for indexValue, indexName in enumerate( sampleDF.index):
-                train = sampleDF.drop(indexName).values
-                emulator = GaussianEmulator( train, 
-                                        maxiter = self.optimization["maxiter"],
-                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
-                                        boundOrdo = self.boundOrdo)
-                emulator.main()
-                predict = sampleDF.loc[indexName].values[:-2].reshape(1,-1)
-                emulator.predictEmulator( predict )
             
-                emulatedValue = emulator.getPredictions().item()
-                leaveOneOutArray[indexValue] = emulatedValue
+            
+            for indexValue, indexName in enumerate( sampleDF.index):
+                leaveOneOutArray[indexValue] = self.__leaveOneOut(sampleDF, indexName)
                 
             
             absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ])
@@ -914,12 +895,3 @@ rmse: {rmse:.2f}""")
 
     def finalise(self):
         self.simulationCompleteData.to_csv(self.completeFile)
-
-
-if __name__ == "__main__":
-    start = time.time()
-
-    main()
-
-    end = time.time()
-    print(f"Script completed in {Data.timeDuration(end - start):s}")
