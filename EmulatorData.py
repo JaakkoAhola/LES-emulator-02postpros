@@ -431,6 +431,19 @@ rmse: {rmse:.2f}""")
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
         self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
+
+    def __leaveOneOut(self, matrix, indexName):
+        train = matrix.drop(indexName).values
+        emulator = GaussianEmulator(train,
+                                    maxiter = self.optimization["maxiter"],
+                                    n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
+                                    boundOrdo = self.boundOrdo)
+        emulator.main()
+        predict = matrix.loc[indexName].values[:-2].reshape(1,-1)
+        emulator.predictEmulator( predict )
+        emulatedValue = emulator.getPredictions().item()
+        
+        return emulatedValue
             
     def __pythonEmulator_bootstrap(self):
         
