@@ -7,6 +7,7 @@ Created on Fri Jan 22 12:23:51 2021
 @licence: MIT licence Copyright
 """
 print(__doc__)
+import os
 import time
 from EmulatorData import EmulatorData
 

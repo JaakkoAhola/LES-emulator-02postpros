@@ -25,6 +25,7 @@ import sys
 from scipy import stats
 import LES2emu
 from subprocess import run
+from sklearn.metrics import mean_squared_error
 
 try:
     import f90nml
@@ -79,7 +80,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
         
-        self.boundOrdo = self.configFile["boundOrdo"]
+        self.boundOrdo = list(map(float, self.configFile["boundOrdo"]))
 
         self.testIfResponseVariableIsInFilter()
 
@@ -235,7 +236,7 @@ class EmulatorData(PostProcessingMetaData):
 
     def __runPythonEmulator(self):
         self.__pythonEmulator__leaveOneOutPython()
-        
+        self.__pythonEmulator_bootstrap()
 
     def postProcess(self):
 
@@ -397,7 +398,7 @@ class EmulatorData(PostProcessingMetaData):
         leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
         print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         t1 = time.time()
-        for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
+        for indexValue, indexName in enumerate(self.simulationFilteredData.index):
             train = self.simulationFilteredData.drop(indexName).values
             emulator = GaussianEmulator( train, 
                                         maxiter = self.optimization["maxiter"],
@@ -415,8 +416,7 @@ class EmulatorData(PostProcessingMetaData):
             print(f"{indexName}, emulation: {emulatedValue}: \
                   simulation: {self.simulationFilteredData.loc[indexName][self.responseVariable]}")
         
-        rmse = numpy.sqrt( numpy.sum( numpy.power(self.simulationFilteredData[self.responseVariable].values[:indexValue] \
-                - leaveOneOutArray[:indexValue],2 )))
+        rmse = mean_squared_error(self.simulationFilteredData[self.responseVariable].values, leaveOneOutArray, squared=False)
         
         t2 = time.time()
         timepercase = (t2 -t1) / (indexValue +1 )
@@ -434,9 +434,53 @@ rmse: {rmse:.2f}""")
             
     def __pythonEmulator_bootstrap(self):
         
-        bootstrapRsquared = numpy.empty( self.simulationFilteredData.index.shape )
-        bootstrapRMSE = numpy.empty( self.simulationFilteredData.index.shape )
+        bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapRMSE = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapAbsErrorSum = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapAbsErrorVar = numpy.empty( self.bootstrappingParameters["iterations"] )
         print("Bootstrapping")
+        
+        for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
+            sampleDF = self.simulationFilteredData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
+            
+            leaveOneOutArray = numpy.empty( sampleDF.index.shape )
+            
+            for indexValue, indexName in enumerate( sampleDF.index):
+                train = sampleDF.drop(indexName).values
+                emulator = GaussianEmulator( train, 
+                                        maxiter = self.optimization["maxiter"],
+                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
+                                        boundOrdo = self.boundOrdo)
+                emulator.main()
+                predict = sampleDF.loc[indexName].values[:-2].reshape(1,-1)
+                emulator.predictEmulator( predict )
+            
+                emulatedValue = emulator.getPredictions().item()
+                leaveOneOutArray[indexValue] = emulatedValue
+                
+            
+            absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ])
+            
+            bootstrapAbsErrorSum[bootStrapIndex] = numpy.sum(absError)
+            
+            bootstrapAbsErrorVar[bootStrapIndex] = numpy.var(absError)
+            
+            bootstrapRMSE[bootStrapIndex] = mean_squared_error( sampleDF[ self.responseVariable ], leaveOneOutArray, squared = False  )
+            
+            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ], leaveOneOutArray )
+            
+            bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
+            
+            
+        self.bootstrapDataFrame = pandas.DataFrame(data = {"AbsErrorSum": bootstrapAbsErrorSum,
+                                 "AbsErrorVar" :  bootstrapAbsErrorVar,
+                                 "RMSE": bootstrapRMSE,
+                                 "RSquared" : bootstrapRsquared})
+        
+        self.bootstrapDataFrame.to_csv( self.bootStrapFile )
+            
+        
+            
 
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:

@@ -32,6 +32,8 @@ PostProcessingMetaData Class
         self.responseFromTrainingSimulationsCSVFile = self.dataOutputFolder / ( self.name + "_responseFromTrainingSimulations.csv")
 
         self.statsFile = self.dataOutputFolder / (self.name + "_stats.csv")
+        
+        self.bootStrapFile = self.dataOutputFolder / (self.name + "_bootstrap.csv")
 
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
 
