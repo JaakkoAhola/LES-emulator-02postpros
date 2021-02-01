@@ -25,6 +25,9 @@ import sys
 from scipy import stats
 import LES2emu
 from subprocess import run
+from sklearn.metrics import mean_squared_error
+from itertools import repeat
+
 
 try:
     import f90nml
@@ -42,7 +45,7 @@ from FileSystem import FileSystem
 from PostProcessingMetaData import PostProcessingMetaData
 
 sys.path.append(os.environ["PYTHONEMULATOR"])
-from GaussianEmulator import GaussianEmulator
+from LeaveOneOut import LeaveOneOut
 
 class EmulatorData(PostProcessingMetaData):
 
@@ -63,14 +66,14 @@ class EmulatorData(PostProcessingMetaData):
         self.responseVariable = self.configFile["responseVariable"]
 
         self.useFortran = self.configFile["useFortran"]
-
+        
         if self.useFortran:
             assert(fortranModePossible)
-
+        
         self.override = self.configFile["override"]
-
+        
         self._readOptimizationConfigs()
-
+        
         self.simulatedVariable = self.responseVariable + "_Simulated"
 
         self.emulatedVariable = self.responseVariable + "_Emulated"
@@ -78,13 +81,13 @@ class EmulatorData(PostProcessingMetaData):
         self.linearFitVariable = self.responseVariable + "_LinearFit"
 
         self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
-
-        self.boundOrdo = self.configFile["boundOrdo"]
+        
+        self.boundOrdo = list(map(float, self.configFile["boundOrdo"]))
 
         self.testIfResponseVariableIsInFilter()
 
         self.responseIndicator = self.configFile[self.responseIndicatorVariable]
-
+        
         self.bootstrappingParameters = self.configFile[ "bootStrap" ]
 
         self.numCores = multiprocessing.cpu_count()
@@ -99,14 +102,14 @@ class EmulatorData(PostProcessingMetaData):
         self.timeEnd = 3.5
 
         self.toleranceForInEqualConditions = 0.1
-
+        
         self.renameFilterIndex()
 
         self.exeDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
 
 
         if self.useFortran: FileSystem.makeFolder( self.exeDataFolder )
-
+        
         self.__prepare__getDesignVariableNames()
 
     def _handleConfigFile(self):
@@ -118,26 +121,26 @@ class EmulatorData(PostProcessingMetaData):
     def _testConfigFile(self):
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
             assert(key in self.configFile)
-
+    
     def _readOptimizationConfigs(self):
         try:
             self.optimization = self.configFile["optimization"]
-
+            
             assert( "maxiter" in self.optimization.keys())
             assert( "n_restarts_optimizer" in self.optimization.keys())
-
+            
         except KeyError:
             self.optimization = {"maxiter" : 15000,
                                  "n_restarts_optimizer" : 10}
 
     def testIfResponseVariableIsInFilter(self):
         assert(self.responseVariable in self.filteringVariablesWithConditions)
-
+        
     def renameFilterIndex(self):
         st="responseVariable" + self.configFile["responseVariable"] + ":"
-        for key in self.configFile["filteringVariablesWithConditions"]:
+        for key in sorted(self.configFile["filteringVariablesWithConditions"]):
             st = st + key + self.configFile["filteringVariablesWithConditions"][key] + ";"
-
+        
         self.filterIndex = st + "."
 
     def setToleranceForInEqualConditions(self, tolerance):
@@ -146,7 +149,7 @@ class EmulatorData(PostProcessingMetaData):
     def prepare(self):
         if self.completeFile.is_file():
             # File exists, lets override or read the file
-
+            
             if self.override:
                 print("File exists, but let's override")
                 self._prepare_override()
@@ -157,23 +160,23 @@ class EmulatorData(PostProcessingMetaData):
                     self.__prepare_CompleteDataPreExisted()
                 else:
                     self.__prepare_appendNewFilterIndexToCompleteData()
-
+            
         else:
             print("File does not exist, let's create it")
             self._prepare_override()
     def __prepare_CompleteDataPreExisted(self):
         self.__prepare__filter()
         self.__prepare__getSimulationCollection()
-
+            
     def __prepare_appendNewFilterIndexToCompleteData(self):
-        self.__prepare__setResponseIndicatorFilteredData()
-
+        self.__prepare__setResponseIndicatorCompleteData()
+        
         self.__prepare__getSimulationCollection()
-
+        
         self.__prepare__filterGetOutlierDataFromLESoutput()
-
+        
         self.__prepare__filter()
-
+        
         self._fillUpDrflxValues()
 
         if self.useFortran: self.__prepare__saveFilteredDataExeMode()
@@ -183,25 +186,25 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__saveOmittedData()
 
         if self.useFortran: self.__prepare__getExeFolderList()
-
+        
         self.finalise()
-
+            
     def _prepare_override(self):
-
+                
         self.__prepare__getPhase01()
 
         self.__prepare__getResponseFromTrainingSimulations()
 
         self.__prepare__setSimulationCompleteDataFromDesignAndTraining()
 
-        self.__prepare__setResponseIndicatorFilteredData()
+        self.__prepare__setResponseIndicatorCompleteData()
 
         self.__prepare__getSimulationCollection()
 
         self.__prepare__filterGetOutlierDataFromLESoutput()
 
         self.__prepare__filter()
-
+        
         self._fillUpDrflxValues()
 
         if self.useFortran: self.__prepare__saveFilteredDataExeMode()
@@ -211,7 +214,7 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__saveOmittedData()
 
         if self.useFortran: self.__prepare__getExeFolderList()
-
+        
         self.finalise()
 
     def runEmulator(self):
@@ -220,9 +223,9 @@ class EmulatorData(PostProcessingMetaData):
             self.__runFortranEmulator()
         else:
             self.__runPythonEmulator()
-
-        #self.finalise()
-
+        
+        self.finalise()
+        
     def __runFortranEmulator(self):
 
         self.__fortranEmulator__saveNamelists()
@@ -235,7 +238,7 @@ class EmulatorData(PostProcessingMetaData):
 
     def __runPythonEmulator(self):
         self.__pythonEmulator__leaveOneOutPython()
-
+        self.__pythonEmulator_bootstrap()
 
     def postProcess(self):
 
@@ -296,7 +299,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.simulationCompleteData = pandas.merge(self.phase01, self.responseFromTrainingSimulations,on = "ID", how="left")
 
-    def __prepare__setResponseIndicatorFilteredData(self):
+    def __prepare__setResponseIndicatorCompleteData(self):
         self.simulationCompleteData[self.responseIndicatorVariable] = float(self.responseIndicator)
 
     def __prepare__filter(self):
@@ -391,53 +394,87 @@ class EmulatorData(PostProcessingMetaData):
 
             for pythonFile in pythonEmulatorFolder.glob("**/*.py"):
                 run(["ln","-sf", pythonFile, folder / pythonFile.name ])
-
+                
     def __pythonEmulator__leaveOneOutPython(self):
-
-        leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
-        print(f'\nEmulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
+        
+        print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         t1 = time.time()
-        for indexValue, indexName in enumerate(self.simulationFilteredData.index[:50]):
-            train = self.simulationFilteredData.drop(indexName).values
-            emulator = GaussianEmulator( train,
-                                        maxiter = self.optimization["maxiter"],
-                                        n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
-                                        boundOrdo = self.boundOrdo)
-
-            emulator.main()
-
-            predict = self.simulationFilteredData.loc[indexName].values[:-2].reshape(1,-1)
-            emulator.predictEmulator( predict )
-
-            emulatedValue = emulator.getPredictions().item()
-            leaveOneOutArray[indexValue] = emulatedValue
-
-            print(f"{indexName}, emulation: {emulatedValue:.4f}: \
-simulation: {self.simulationFilteredData.loc[indexName][self.responseVariable]:.4f}")
-
-        rmse = numpy.sqrt( numpy.sum( numpy.power(self.simulationFilteredData[self.responseVariable].values[:indexValue] \
-                - leaveOneOutArray[:indexValue],2 )))
-
+        
+        with multiprocessing.Pool(processes = self.numCores) as pool:
+            
+            output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(self.simulationFilteredData),
+                                                                    self.simulationFilteredData.index.values,
+                                                                    repeat(self.optimization),
+                                                                    repeat(self.boundOrdo)) )
+        leaveOneOutArray = numpy.asarray(output)
+        
+        rmse = mean_squared_error(self.simulationFilteredData[self.responseVariable].values, leaveOneOutArray, squared=False)
+        
         t2 = time.time()
-        timepercase = (t2 -t1) / (indexValue +1 )
+        timepercase = (t2 -t1) / (len(self.simulationFilteredData.index.values) )
         print(f"""
 Emulating completed, {self.name}
-Time to calculate updrafts {t2-t1:.1f},
+Time emulated {t2-t1:.1f},
 avg. {timepercase},
 maxiter: {self.optimization['maxiter']},
 n_restarts_optimizer: {self.optimization['n_restarts_optimizer']},
 boundOrdo: self.boundOrdo,
 rmse: {rmse:.2f}""")
-
+        
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
-
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
-
+        
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable, self.responseIndicatorVariable] + self.designVariableNames, how = "left")
+            
     def __pythonEmulator_bootstrap(self):
-
-        bootstrapRsquared = numpy.empty( self.simulationFilteredData.index.shape )
-        bootstrapRMSE = numpy.empty( self.simulationFilteredData.index.shape )
+        
+        bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapRMSE = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapAbsErrorSum = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapAbsErrorVar = numpy.empty( self.bootstrappingParameters["iterations"] )
         print("Bootstrapping")
+        t1 = time.time()
+        for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
+            sampleDF = self.simulationFilteredData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
+            
+            
+            with multiprocessing.Pool( processes = self.numCores ) as pool:
+                output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(sampleDF),
+                                                                    sampleDF.index.values,
+                                                                    repeat(self.optimization),
+                                                                    repeat(self.boundOrdo)) )
+            leaveOneOutArray = numpy.asarray( output )
+                
+            absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ].values)
+            
+            bootstrapAbsErrorSum[bootStrapIndex] = numpy.sum(absError)
+            
+            bootstrapAbsErrorVar[bootStrapIndex] = numpy.var(absError)
+            
+            bootstrapRMSE[bootStrapIndex] = mean_squared_error( sampleDF[ self.responseVariable ].values, leaveOneOutArray, squared = False  )
+            
+            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ].values, leaveOneOutArray )
+            
+            bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
+        t2 = time.time()
+        timepercase = (t2 -t1) / ( self.bootstrappingParameters["iterations"] * self.bootstrappingParameters["sampleSize"]  )
+        print(f"""
+Bootstrapping completed, {self.name}
+Time bootstrapped {t2-t1:.1f},
+avg. {timepercase},
+iterations: {self.bootstrappingParameters["iterations"]},
+sample size: {self.bootstrappingParameters["sampleSize"]}
+""")
+        
+            
+        self.bootstrapDataFrame = pandas.DataFrame(data = {"AbsErrorSum": bootstrapAbsErrorSum,
+                                 "AbsErrorVar" :  bootstrapAbsErrorVar,
+                                 "RMSE": bootstrapRMSE,
+                                 "RSquared" : bootstrapRsquared})
+        
+        self.bootstrapDataFrame.to_csv( self.bootStrapFile )
+            
+        
+            
 
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
@@ -825,7 +862,7 @@ rmse: {rmse:.2f}""")
         dataframe = self.simulationCompleteData
 
         dataframe["linearFitIndex"] = dataframe[self.filterIndex]
-
+        
         dataframe = dataframe.loc[dataframe["linearFitIndex"]]
 
         radiativeWarming  = dataframe["drflx"].values
@@ -858,12 +895,3 @@ rmse: {rmse:.2f}""")
 
     def finalise(self):
         self.simulationCompleteData.to_csv(self.completeFile)
-
-
-if __name__ == "__main__":
-    start = time.time()
-
-    main()
-
-    end = time.time()
-    print(f"Script completed in {Data.timeDuration(end - start):s}")
