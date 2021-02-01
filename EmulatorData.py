@@ -26,6 +26,8 @@ from scipy import stats
 import LES2emu
 from subprocess import run
 from sklearn.metrics import mean_squared_error
+from itertools import repeat
+
 
 try:
     import f90nml
@@ -43,7 +45,7 @@ from FileSystem import FileSystem
 from PostProcessingMetaData import PostProcessingMetaData
 
 sys.path.append(os.environ["PYTHONEMULATOR"])
-from GaussianEmulator import GaussianEmulator
+from LeaveOneOut import LeaveOneOut
 
 class EmulatorData(PostProcessingMetaData):
 
@@ -167,7 +169,7 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__getSimulationCollection()
             
     def __prepare_appendNewFilterIndexToCompleteData(self):
-        self.__prepare__setResponseIndicatorFilteredData()
+        self.__prepare__setResponseIndicatorCompleteData()
         
         self.__prepare__getSimulationCollection()
         
@@ -195,7 +197,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.__prepare__setSimulationCompleteDataFromDesignAndTraining()
 
-        self.__prepare__setResponseIndicatorFilteredData()
+        self.__prepare__setResponseIndicatorCompleteData()
 
         self.__prepare__getSimulationCollection()
 
@@ -297,7 +299,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.simulationCompleteData = pandas.merge(self.phase01, self.responseFromTrainingSimulations,on = "ID", how="left")
 
-    def __prepare__setResponseIndicatorFilteredData(self):
+    def __prepare__setResponseIndicatorCompleteData(self):
         self.simulationCompleteData[self.responseIndicatorVariable] = float(self.responseIndicator)
 
     def __prepare__filter(self):
@@ -395,22 +397,24 @@ class EmulatorData(PostProcessingMetaData):
                 
     def __pythonEmulator__leaveOneOutPython(self):
         
-        leaveOneOutArray = numpy.empty( self.simulationFilteredData.index.shape )
         print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
         t1 = time.time()
-        for indexValue, indexName in enumerate(self.simulationFilteredData.index):
-            emulatedValue = self.__leaveOneOut(self.simulationFilteredData, indexName)
-            leaveOneOutArray[indexValue] = emulatedValue
+        
+        with multiprocessing.Pool(processes = self.numCores) as pool:
             
-            print(f"{indexName}, emulation: {emulatedValue}: \
-                  simulation: {self.simulationFilteredData.loc[indexName][self.responseVariable]}")
+            output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(self.simulationFilteredData),
+                                                                    self.simulationFilteredData.index.values,
+                                                                    repeat(self.optimization),
+                                                                    repeat(self.boundOrdo)) )
+        leaveOneOutArray = numpy.asarray(output)
         
         rmse = mean_squared_error(self.simulationFilteredData[self.responseVariable].values, leaveOneOutArray, squared=False)
         
         t2 = time.time()
-        timepercase = (t2 -t1) / (indexValue +1 )
-        print(f"""Emulating completed, {self.name}
-Time to calculate updrafts {t2-t1:.1f},
+        timepercase = (t2 -t1) / (len(self.simulationFilteredData.index.values) )
+        print(f"""
+Emulating completed, {self.name}
+Time emulated {t2-t1:.1f},
 avg. {timepercase},
 maxiter: {self.optimization['maxiter']},
 n_restarts_optimizer: {self.optimization['n_restarts_optimizer']},
@@ -419,20 +423,7 @@ rmse: {rmse:.2f}""")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
-
-    def __leaveOneOut(self, matrix, indexName):
-        train = matrix.drop(indexName).values
-        emulator = GaussianEmulator(train,
-                                    maxiter = self.optimization["maxiter"],
-                                    n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
-                                    boundOrdo = self.boundOrdo)
-        emulator.main()
-        predict = matrix.loc[indexName].values[:-2].reshape(1,-1)
-        emulator.predictEmulator( predict )
-        emulatedValue = emulator.getPredictions().item()
-        
-        return emulatedValue
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable, self.responseIndicatorVariable] + self.designVariableNames, how = "left")
             
     def __pythonEmulator_bootstrap(self):
         
@@ -441,30 +432,39 @@ rmse: {rmse:.2f}""")
         bootstrapAbsErrorSum = numpy.empty( self.bootstrappingParameters["iterations"] )
         bootstrapAbsErrorVar = numpy.empty( self.bootstrappingParameters["iterations"] )
         print("Bootstrapping")
-        
+        t1 = time.time()
         for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
             sampleDF = self.simulationFilteredData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
             
-            leaveOneOutArray = numpy.empty( sampleDF.index.shape )
             
-            
-            
-            for indexValue, indexName in enumerate( sampleDF.index):
-                leaveOneOutArray[indexValue] = self.__leaveOneOut(sampleDF, indexName)
+            with multiprocessing.Pool( processes = self.numCores ) as pool:
+                output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(sampleDF),
+                                                                    sampleDF.index.values,
+                                                                    repeat(self.optimization),
+                                                                    repeat(self.boundOrdo)) )
+            leaveOneOutArray = numpy.asarray( output )
                 
-            
-            absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ])
+            absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ].values)
             
             bootstrapAbsErrorSum[bootStrapIndex] = numpy.sum(absError)
             
             bootstrapAbsErrorVar[bootStrapIndex] = numpy.var(absError)
             
-            bootstrapRMSE[bootStrapIndex] = mean_squared_error( sampleDF[ self.responseVariable ], leaveOneOutArray, squared = False  )
+            bootstrapRMSE[bootStrapIndex] = mean_squared_error( sampleDF[ self.responseVariable ].values, leaveOneOutArray, squared = False  )
             
-            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ], leaveOneOutArray )
+            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ].values, leaveOneOutArray )
             
             bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
-            
+        t2 = time.time()
+        timepercase = (t2 -t1) / ( self.bootstrappingParameters["iterations"] * self.bootstrappingParameters["sampleSize"]  )
+        print(f"""
+Bootstrapping completed, {self.name}
+Time bootstrapped {t2-t1:.1f},
+avg. {timepercase},
+iterations: {self.bootstrappingParameters["iterations"]},
+sample size: {self.bootstrappingParameters["sampleSize"]}
+""")
+        
             
         self.bootstrapDataFrame = pandas.DataFrame(data = {"AbsErrorSum": bootstrapAbsErrorSum,
                                  "AbsErrorVar" :  bootstrapAbsErrorVar,
