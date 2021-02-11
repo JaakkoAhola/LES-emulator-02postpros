@@ -52,44 +52,18 @@ class EmulatorData(PostProcessingMetaData):
     def __init__(self, name : str,
                  trainingSimulationRootFolder : list,
                  dataOutputRootFolder : list,
-                 inputConfigFile : str
+                 configFile : str
                  ):
         # responseVariable : str,
         #          filteringVariablesWithConditions : dict,
         #          responseIndicator = 0
-        super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder)
+        super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder, configFile  = configFile)
 
-        self.inputConfigFile = inputConfigFile
-
-        self._handleConfigFile()
-
-        self.responseVariable = self.configFile["responseVariable"]
-
-        self.useFortran = self.configFile["useFortran"]
-        
         if self.useFortran:
             assert(fortranModePossible)
         
-        self.override = self.configFile["override"]
-        
         self._readOptimizationConfigs()
         
-        self.simulatedVariable = self.responseVariable + "_Simulated"
-
-        self.emulatedVariable = self.responseVariable + "_Emulated"
-
-        self.linearFitVariable = self.responseVariable + "_LinearFit"
-
-        self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
-        
-        self.boundOrdo = list(map(float, self.configFile["boundOrdo"]))
-
-        self.testIfResponseVariableIsInFilter()
-
-        self.responseIndicator = self.configFile[self.responseIndicatorVariable]
-        
-        self.bootstrappingParameters = self.configFile[ "bootStrap" ]
-
         self.numCores = multiprocessing.cpu_count()
 
         self.anomalyLimitLow = {}
@@ -103,24 +77,13 @@ class EmulatorData(PostProcessingMetaData):
 
         self.toleranceForInEqualConditions = 0.1
         
-        self.renameFilterIndex()
-
         self.exeDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
-
 
         if self.useFortran: FileSystem.makeFolder( self.exeDataFolder )
         
         self.__prepare__getDesignVariableNames()
 
-    def _handleConfigFile(self):
-        self._readConfigFile()
-        self._testConfigFile()
 
-    def _readConfigFile(self):
-        self.configFile = FileSystem.readYAML(self.inputConfigFile)
-    def _testConfigFile(self):
-        for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
-            assert(key in self.configFile)
     
     def _readOptimizationConfigs(self):
         try:
@@ -133,15 +96,6 @@ class EmulatorData(PostProcessingMetaData):
             self.optimization = {"maxiter" : 15000,
                                  "n_restarts_optimizer" : 10}
 
-    def testIfResponseVariableIsInFilter(self):
-        assert(self.responseVariable in self.filteringVariablesWithConditions)
-        
-    def renameFilterIndex(self):
-        st="responseVariable" + self.configFile["responseVariable"] + ":"
-        for key in sorted(self.configFile["filteringVariablesWithConditions"]):
-            st = st + key + self.configFile["filteringVariablesWithConditions"][key] + ";"
-        
-        self.filterIndex = st + "."
 
     def setToleranceForInEqualConditions(self, tolerance):
         self.toleranceForInEqualConditions = tolerance
@@ -237,11 +191,17 @@ class EmulatorData(PostProcessingMetaData):
         self.__fortranEmulator__runPredictionParallel()
 
     def __runPythonEmulator(self):
-        self.__pythonEmulator__leaveOneOutPython()
-        self.__pythonEmulator_bootstrap()
+        if self.runEmulator: self.__pythonEmulator__leaveOneOutPython()
+        if self.runBootStrap: self.__pythonEmulator_bootstrap()
 
     def postProcess(self):
-
+        
+        if self.runPostProcessing:
+            self._runPostProcess()
+        else:
+            print("Not postprocessing because runPostProcess set to False in configFile")
+        
+    def _runPostProcess(self):    
         if self.useFortran: self.collectSimulatedVSPredictedDataFortran()
 
         self._getAnomalyLimitsQuantile()
@@ -423,7 +383,7 @@ rmse: {rmse:.2f}""")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable, self.responseIndicatorVariable] + self.designVariableNames, how = "left")
+        self.simulationCompleteData = pandas.concat([ self.simulationCompleteData, self.simulationFilteredData[self.emulatedVariable] ], axis = 1)
             
     def __pythonEmulator_bootstrap(self):
         

@@ -4,10 +4,14 @@ import time
 import pathlib
 import sys
 import os
+
+from EmulatorMetaData import EmulatorMetaData
+
 sys.path.append(os.environ["LESMAINSCRIPTS"])
 from FileSystem import FileSystem
 
-class PostProcessingMetaData:
+
+class PostProcessingMetaData(EmulatorMetaData):
     """
 Created on Wed Dec 16 18:21:10 2020
 
@@ -17,10 +21,18 @@ Created on Wed Dec 16 18:21:10 2020
 PostProcessingMetaData Class
 """
 
-    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list):
+    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list, configFile = None, figureFolder = None):
 
         self.name = name
         self.ID_prefix = name[3:5]
+        
+        self.responseIndicatorVariable = "responseIndicator"
+        
+        if configFile is not None:
+            super().__init__(configFile)
+            
+        if figureFolder is not None:
+            self.figureFolder = self.__joinFolders( figureFolder )
 
         self.trainingSimulationRootFolder = self.__joinFolders( trainingSimulationRootFolder )
         self.dataOutputRootFolder = self.__joinFolders( dataOutputRootFolder )
@@ -41,13 +53,6 @@ PostProcessingMetaData Class
 
         self.completeFile = self.dataOutputFolder / (self.name + "_complete.csv")
 
-
-
-
-        self.responseIndicatorVariable = "responseIndicator"
-
-        self.filterIndex = "FilterIndex"
-
         self.testFolderExists(self.trainingSimulationRootFolder)
 
         FileSystem.makeFolder( self.dataOutputFolder )
@@ -58,6 +63,8 @@ PostProcessingMetaData Class
 
     def testFolderExists(self, folder):
         assert(folder.exists())
+        
+    
 
 def main():
     pass
