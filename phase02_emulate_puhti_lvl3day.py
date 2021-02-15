@@ -17,8 +17,8 @@ def main(inputConfigFile):
     rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
 
     ###########
-    emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
-                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
+    emulatorSets = {"LVL3Day" : EmulatorData("LVL3Day",
+                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],#/fmi/scratch/project_2001927/aholaj/eclair_training_simulations/case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day
                                              [rootFolderOfDataOutputs],
                                              inputConfigFile
                                              )
@@ -27,7 +27,7 @@ def main(inputConfigFile):
     for key in emulatorSets:
         emulatorSets[key].prepare()
         emulatorSets[key].runEmulator()
-        #emulatorSets[key].postProcess()
+        emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
     try:

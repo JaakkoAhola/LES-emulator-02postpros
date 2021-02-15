@@ -27,7 +27,7 @@ def main(inputConfigFile):
     for key in emulatorSets:
         emulatorSets[key].prepare()
         emulatorSets[key].runEmulator()
-        #emulatorSets[key].postProcess()
+        emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
     try:
