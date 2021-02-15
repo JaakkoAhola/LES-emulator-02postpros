@@ -21,6 +21,7 @@ import pandas
 import pathlib
 import time
 import os
+import re
 import sys
 from scipy import stats
 import LES2emu
@@ -54,9 +55,7 @@ class EmulatorData(PostProcessingMetaData):
                  dataOutputRootFolder : list,
                  configFile : str
                  ):
-        # responseVariable : str,
-        #          filteringVariablesWithConditions : dict,
-        #          responseIndicator = 0
+        
         super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder, configFile  = configFile)
 
         if self.useFortran:
@@ -110,6 +109,9 @@ class EmulatorData(PostProcessingMetaData):
             else:
                 print("File exists, let's read it")
                 self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)
+                reg = re.compile("\d{1,9}\S_\d{0,9}")
+                if all([reg.match(ind) is not None for ind in self.simulationCompleteData.index.values]):
+                    self.simulationCompleteData.index.name = "ID"
                 if self.filterIndex in self.simulationCompleteData.columns:
                     self.__prepare_CompleteDataPreExisted()
                 else:
@@ -191,7 +193,7 @@ class EmulatorData(PostProcessingMetaData):
         self.__fortranEmulator__runPredictionParallel()
 
     def __runPythonEmulator(self):
-        if self.runEmulator: self.__pythonEmulator__leaveOneOutPython()
+        if self.runLeaveOneOut: self.__pythonEmulator__leaveOneOutPython()
         if self.runBootStrap: self.__pythonEmulator_bootstrap()
 
     def postProcess(self):

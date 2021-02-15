@@ -24,8 +24,16 @@ class EmulatorMetaData:
         self.initResponseVariableDerivatives()
         
     def initConfigFile(self):
-        self._handleConfigFile()
+        self._readConfigFile()
         
+        self._setUpParametersFromConfigFile()
+        
+        self._testConfigFile()
+        
+        self._testConfigFileResponseVariableIsInFilter()
+        
+
+    def _setUpParametersFromConfigFile(self):
         self.responseVariable = self.configFile["responseVariable"]
 
         self.useFortran = self.configFile["useFortran"]
@@ -34,7 +42,6 @@ class EmulatorMetaData:
         
         self.filteringVariablesWithConditions = self.configFile["filteringVariablesWithConditions"]
         
-        self.testIfResponseVariableIsInFilter()
         
         self.boundOrdo = list(map(float, self.configFile["boundOrdo"]))
         
@@ -42,24 +49,10 @@ class EmulatorMetaData:
         
         self.bootstrappingParameters = self.configFile[ "bootStrap" ]
         
-        self.runEmulator = self.configFile["runEmulator"]
+        self.runLeaveOneOut = self.configFile["runLeaveOneOut"]
         self.runBootStrap = self.configFile["runBootStrap"]
-        self.runPostProcessing = self.configFile["runPosProcessing"]
-
-    def initResponseVariableDerivatives(self):
+        self.runPostProcessing = self.configFile["runPostProcessing"]    
         
-        self.simulatedVariable = self.jointList([self.filterIndex, "Simulated"])
-
-        self.emulatedVariable = self.jointList([self.filterIndex, "Emulated"])
-
-        self.linearFitVariable = self.jointList([self.filterIndex, "LinearFit"])
-        
-    def joinList(self, lista):
-        return "_".join(lista)
-
-    def _handleConfigFile(self):
-        self._readConfigFile()
-        self._testConfigFile()
 
     def _readConfigFile(self):
         self.configFile = FileSystem.readYAML(self.configFile)
@@ -67,7 +60,7 @@ class EmulatorMetaData:
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
             assert(key in self.configFile)        
             
-    def testIfResponseVariableIsInFilter(self):
+    def _testConfigFileResponseVariableIsInFilter(self):
         assert(self.responseVariable in self.filteringVariablesWithConditions)
         
     def nameFilterIndex(self):
@@ -77,3 +70,13 @@ class EmulatorMetaData:
         
         self.filterIndex = st + "."
     
+    def initResponseVariableDerivatives(self):
+        
+        self.simulatedVariable = self.joinList([self.filterIndex, "Simulated"])
+
+        self.emulatedVariable = self.joinList([self.filterIndex, "Emulated"])
+
+        self.linearFitVariable = self.joinList([self.filterIndex, "LinearFit"])
+        
+    def joinList(self, lista):
+        return "_".join(lista)
