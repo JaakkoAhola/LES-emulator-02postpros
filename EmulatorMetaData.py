@@ -78,5 +78,7 @@ class EmulatorMetaData:
 
         self.linearFitVariable = self.joinList([self.filterIndex, "LinearFit"])
         
+        self.correctedLinearFitVariable = self.joinList([self.filterIndex, "CorrectedLinearFit"])
+        
     def joinList(self, lista):
         return "_".join(lista)

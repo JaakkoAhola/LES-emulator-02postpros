@@ -215,6 +215,8 @@ class EmulatorData(PostProcessingMetaData):
         self._getLinearFit()
 
         self._getErrors()
+        
+        self._getBootstrap()
 
         self._finaliseStats()
         self._finaliseAnomalies()
@@ -396,8 +398,9 @@ rmse: {rmse:.2f}""")
         print("Bootstrapping")
         t1 = time.time()
         for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
-            sampleDF = self.simulationFilteredData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
-            
+            sampleDF = self.simulationCompleteData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
+
+            sampleDF = sampleDF[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
             
             with multiprocessing.Pool( processes = self.numCores ) as pool:
                 output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(sampleDF),
@@ -435,8 +438,34 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         
         self.bootstrapDataFrame.to_csv( self.bootStrapFile )
             
+    def _getBootstrap(self):
+        bootstrapped = {}
+        for fitVariable in [self.emulatedVariable, self.linearFitVariable, self.correctedLinearFitVariable]:
+            if fitVariable in self.simulationCompleteData:
+                r_value, rSquared = self.__bootstrapping( fitVariable )
+                bootstrapped[ fitVariable + "_RValueBootStrapWithReplacement" ] = r_value
+                bootstrapped[ fitVariable +  "_RSquaredBootstrapWithReplacement" ] = rSquared
+        self.bootstrapReplacementDataFrame = pandas.DataFrame(data = bootstrapped)
+        self.bootstrapReplacementDataFrame.to_csv(self.bootstrapReplacementFile)
+                    
         
+        
+    def __bootstrapping(self, fitVariable):
+        bootstrapRvalue = numpy.empty(self.bootstrappingParameters["iterations"] )
+        bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
+        
+        dataframe = self.simulationCompleteData[ self.simulationCompleteData[self.filterIndex]]
+        
+        print("Bootstrapping with replacement", fitVariable)
+        for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
+            sampleDF = dataframe.sample(n = dataframe.shape[0], replace = True, random_state = bootStrapIndex).sort_index()
             
+            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ].values, sampleDF[ fitVariable ].values )
+            
+            bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
+            bootstrapRvalue[bootStrapIndex] = r_value
+            
+        return bootstrapRvalue, bootstrapRsquared
 
     def __fortranEmulator__linkExecutables(self):
         for ind in self.simulationFilteredData.index:
@@ -838,8 +867,11 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
 
         coef = [slope, intercept]
         poly1d_fn = numpy.poly1d(coef)
-
-        self.simulationCompleteData[ self.linearFitVariable ] = self.simulationCompleteData.apply(lambda row: poly1d_fn(row["drflx"]), axis = 1)
+        
+        linFitTemp = dataframe.apply(lambda row: poly1d_fn(row["drflx"]), axis = 1)
+        self.simulationCompleteData = pandas.concat([ self.simulationCompleteData, linFitTemp ], axis = 1)
+        
+        
 
     def _getErrors(self):
         dataframe = self.simulationCompleteData
@@ -854,6 +886,5 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
                                                index=["leaveOneOutStats", "linearFitStats"])
 
         self.statsDataFrame.to_csv( self.statsFile)
-
     def finalise(self):
         self.simulationCompleteData.to_csv(self.completeFile)

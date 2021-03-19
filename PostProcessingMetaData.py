@@ -46,6 +46,8 @@ PostProcessingMetaData Class
         self.statsFile = self.dataOutputFolder / (self.name + "_stats.csv")
         
         self.bootStrapFile = self.dataOutputFolder / (self.name + "_bootstrap.csv")
+        
+        self.bootstrapReplacementFile = self.dataOutputFolder / (self.name + "_bootstrapReplacement.csv")
 
         self.dataFile = self.dataOutputFolder / (self.name + "_DATA")
 
