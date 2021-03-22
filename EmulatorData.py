@@ -395,10 +395,19 @@ rmse: {rmse:.2f}""")
         bootstrapRMSE = numpy.empty( self.bootstrappingParameters["iterations"] )
         bootstrapAbsErrorSum = numpy.empty( self.bootstrappingParameters["iterations"] )
         bootstrapAbsErrorVar = numpy.empty( self.bootstrappingParameters["iterations"] )
+        bootstrapLinFitRSquared = numpy.empty( self.bootstrappingParameters["iterations"] )
         print("Bootstrapping")
         t1 = time.time()
         for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
             sampleDF = self.simulationCompleteData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
+            
+            #linfit
+            radiativeWarming  = sampleDF["drflx"].values
+            updraft =  sampleDF[ self.responseVariable ].values
+
+            slope, intercept, r_value, p_value, std_err = stats.linregress(radiativeWarming, updraft)
+            bootstrapLinFitRSquared[bootStrapIndex] =  numpy.power(r_value, 2)
+            #linfit end
 
             sampleDF = sampleDF[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
             
@@ -434,7 +443,8 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         self.bootstrapDataFrame = pandas.DataFrame(data = {"AbsErrorSum": bootstrapAbsErrorSum,
                                  "AbsErrorVar" :  bootstrapAbsErrorVar,
                                  "RMSE": bootstrapRMSE,
-                                 "RSquared" : bootstrapRsquared})
+                                 "RSquared" : bootstrapRsquared,
+                                 "RSquaredLinFit" : bootstrapLinFitRSquared})
         
         self.bootstrapDataFrame.to_csv( self.bootStrapFile )
             
@@ -871,6 +881,22 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         linFitTemp = dataframe.apply(lambda row: poly1d_fn(row["drflx"]), axis = 1)
         self.simulationCompleteData = pandas.concat([ self.simulationCompleteData, linFitTemp ], axis = 1)
         
+    def _getCorrectedLinearFit(self):
+        dataframe = self.simulationCompleteData
+
+        dataframe["correctedLinearFitIndex"] = dataframe[self.filterIndex]
+        
+        dataframe = dataframe.loc[dataframe["correctedLinearFitIndex"]]
+
+        corrected = dataframe[ self.correctedLinearFitVariable ].values
+        simulated =  dataframe[ self.responseVariable ].values
+
+        slope, intercept, r_value, p_value, std_err = stats.linregress(simulated, corrected)
+
+        rSquared = numpy.power(r_value, 2)
+
+        self.correctedLinearFitStats = [slope, intercept, r_value, p_value, std_err, rSquared]
+
         
 
     def _getErrors(self):
@@ -881,9 +907,9 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         dataframe["absErrorLinearFit"] = dataframe.apply(lambda row: row[self.responseVariable] - row[self.linearFitVariable], axis = 1)
 
     def _finaliseStats(self):
-        self.statsDataFrame = pandas.DataFrame(numpy.array([  self.leaveOneOutStats, self.linearFitStats ]),
+        self.statsDataFrame = pandas.DataFrame(numpy.array([  self.leaveOneOutStats, self.linearFitStats, self.correctedLinearFitStats ]),
                                                columns = ["slope", "intercept", "r_value", "p_value", "std_err", "rSquared"],
-                                               index=["leaveOneOutStats", "linearFitStats"])
+                                               index=["leaveOneOutStats", "linearFitStats", "correctedLinearFitStats"])
 
         self.statsDataFrame.to_csv( self.statsFile)
     def finalise(self):
