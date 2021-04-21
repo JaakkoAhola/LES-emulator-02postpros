@@ -422,11 +422,8 @@ class EmulatorData(PostProcessingMetaData):
 
         self._getAnomalies()
 
-        self._getLeaveOneOut()
-        self._getLinearFit()
+        self._getStats()
 
-        self._getErrors()
-        
         self._getBootstrap()
 
         self._finaliseStats()
@@ -481,7 +478,10 @@ class EmulatorData(PostProcessingMetaData):
 
         self.__filterAllConditions()
         self.filterMask = self.simulationCompleteData[ self.filterIndex ]
-        filteredData = self.simulationCompleteData[ self.filterMask ].copy()
+        
+        self.simulationCompleteDataMasked = self.simulationCompleteData[ self.filterMask ]
+        
+        filteredData = self.simulationCompleteDataMasked.copy()
 
         self.simulationFilteredData = filteredData[self.designVariableNames + [ self.responseVariable ]]
         
@@ -1029,78 +1029,67 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
             maskedZarr[ lowestCloudyZPointInColumn ] = 1
 
         return maskedZarr
+    
+    def _getStats(self):
+        
+        self.statistics = {}
+        
+        self._getEmulatorStats()
+        self._getLinearFitStats()
+        self._getCorrectedLinearFitStats()
+        
+        self._getLinearFitRadWarminStats()
+        
+
+    def _getEmulatorStats(self):
+
+        simulated = self.simulationCompleteDataMasked[ self.responseVariable ].values
+        emulated = self.simulationCompleteDataMasked[ self.emulatedVariable ].values
+
+        self.statistics["emulator"] = self._statsMethod(simulated, emulated)
+    
+    def _getLinearFitStats(self):
+        simulated = self.simulationCompleteDataMasked[ self.responseVariable ].values
+        linearFit = self.simulationCompleteDataMasked[ self.linearFitVariable ].values
+        
+        self.statistics["linearFit"] = self._statsMethod( simulated, linearFit)
+        
+
+    def _getLinearFitRadWarminStats(self):
+
+        radiativeWarming  = self.simulationCompleteDataMasked["drflx"].values
+        updraft =  self.simulationCompleteDataMasked[ self.responseVariable ].values
+
+        self.statistics["linearFitRadWarming"] = self._statsMethod(radiativeWarming, updraft)
+
+        
+    def _getCorrectedLinearFitStats(self):
+        
+        simulated =  self.simulationCompleteDataMasked[ self.responseVariable ].values
+        corrected = self.simulationCompleteDataMasked[ self.correctedLinearFitVariable ].values
 
 
-    def _getLeaveOneOut(self):
-        dataframe = self.simulationCompleteData
+        self.statistics["correctedLinearFit"] = self._statsMethod(simulated, corrected)
 
-        dataframe["leaveOneOutIndex"]  = dataframe[self.filterIndex]
-
-        dataframe = dataframe.loc[dataframe["leaveOneOutIndex"]]
-
-        simulated = dataframe[ self.responseVariable ].values
-        emulated  = dataframe[ self.emulatedVariable].values
-
-
-        slope, intercept, r_value, p_value, std_err = stats.linregress(simulated, emulated)
+    def _statsMethod(self, observed, predicted):
+        slope, intercept, r_value, p_value, std_err = stats.linregress(observed, predicted)
 
         rSquared = numpy.power(r_value, 2)
-
-        self.leaveOneOutStats = [slope, intercept, r_value, p_value, std_err, rSquared]
-
-
-    def _getLinearFit(self):
-
-        dataframe = self.simulationCompleteData
-
-        dataframe["linearFitIndex"] = dataframe[self.filterIndex]
         
-        dataframe = dataframe.loc[dataframe["linearFitIndex"]]
-
-        radiativeWarming  = dataframe["drflx"].values
-        updraft =  dataframe[ self.responseVariable ].values
-
-        slope, intercept, r_value, p_value, std_err = stats.linregress(radiativeWarming, updraft)
-
-        rSquared = numpy.power(r_value, 2)
-
-        self.linearFitStats = [slope, intercept, r_value, p_value, std_err, rSquared]
-
-        coef = [slope, intercept]
-        poly1d_fn = numpy.poly1d(coef)
+        rmse = mean_squared_error(observed, predicted, squared=False)
         
-        linFitTemp = dataframe.apply(lambda row: poly1d_fn(row["drflx"]), axis = 1)
-        self.simulationCompleteData = pandas.concat([ self.simulationCompleteData, linFitTemp ], axis = 1)
+        statistics = {"slope":slope, 
+                      "intercept": intercept,
+                      "r_value":r_value,
+                      "p_value" :p_value,
+                      "std_err": std_err,
+                      "rSquared":rSquared,
+                      "rmse":rmse}
         
-    def _getCorrectedLinearFit(self):
-        dataframe = self.simulationCompleteData
-
-        dataframe["correctedLinearFitIndex"] = dataframe[self.filterIndex]
-        
-        dataframe = dataframe.loc[dataframe["correctedLinearFitIndex"]]
-
-        corrected = dataframe[ self.correctedLinearFitVariable ].values
-        simulated =  dataframe[ self.responseVariable ].values
-
-        slope, intercept, r_value, p_value, std_err = stats.linregress(simulated, corrected)
-
-        rSquared = numpy.power(r_value, 2)
-
-        self.correctedLinearFitStats = [slope, intercept, r_value, p_value, std_err, rSquared]
-
-        
-
-    def _getErrors(self):
-        dataframe = self.simulationCompleteData
-
-        dataframe["absErrorEmul"] = dataframe.apply(lambda row: row[self.responseVariable] - row[self.emulatedVariable], axis = 1)
-
-        dataframe["absErrorLinearFit"] = dataframe.apply(lambda row: row[self.responseVariable] - row[self.linearFitVariable], axis = 1)
+        return statistics
 
     def _finaliseStats(self):
-        self.statsDataFrame = pandas.DataFrame(numpy.array([  self.leaveOneOutStats, self.linearFitStats, self.correctedLinearFitStats ]),
-                                               columns = ["slope", "intercept", "r_value", "p_value", "std_err", "rSquared"],
-                                               index=["leaveOneOutStats", "linearFitStats", "correctedLinearFitStats"])
+        self.statsDataFrame = pandas.DataFrame.from_dict(self.statistics, orient = "index")
 
         self.statsDataFrame.to_csv( self.statsFile)
     def finalise(self):
