@@ -11,8 +11,6 @@ Second phase of post-processing simulation data for a emulator
 Includes running actual emulator with leave-one-out method
 """
 print(__doc__)
-from copy import deepcopy
-import itertools
 import math
 import multiprocessing
 import numpy
@@ -25,7 +23,6 @@ import re
 import sys
 from scipy import stats
 import LES2emu
-from subprocess import run
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
@@ -33,18 +30,13 @@ from sklearn.ensemble import RandomForestRegressor
 from itertools import repeat
 from sklearn.inspection import permutation_importance
 
-try:
-    import f90nml
-    fortranModePossible = True
-except ModuleNotFoundError:
-    fortranModePossible = False
+
 
 
 sys.path.append(os.environ["LESMAINSCRIPTS"])
 
 from Data import Data
 from InputSimulation import InputSimulation
-from FileSystem import FileSystem
 
 from PostProcessingMetaData import PostProcessingMetaData
 
@@ -61,9 +53,6 @@ class EmulatorData(PostProcessingMetaData):
                  ):
         
         super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder, configFile  = configFile)
-
-        if self.useFortran:
-            assert(fortranModePossible)
         
         self._readOptimizationConfigs()
         
@@ -82,8 +71,6 @@ class EmulatorData(PostProcessingMetaData):
         
         self.exeDataFolder = self.dataOutputFolder / ( "DATA" + "_" + self.responseVariable)
 
-        if self.useFortran: FileSystem.makeFolder( self.exeDataFolder )
-        
         self.__prepare__getDesignVariableNames()
 
 
@@ -139,14 +126,8 @@ class EmulatorData(PostProcessingMetaData):
         
         self._fillUpDrflxValues()
 
-        if self.useFortran: self.__prepare__saveFilteredDataExeMode()
-
         self.__prepare__saveFilteredDataRMode()
 
-        if self.useFortran: self.__prepare__saveOmittedData()
-
-        if self.useFortran: self.__prepare__getExeFolderList()
-        
         self.finalise()
             
     def _prepare_override(self):
@@ -167,13 +148,7 @@ class EmulatorData(PostProcessingMetaData):
         
         self._fillUpDrflxValues()
 
-        if self.useFortran: self.__prepare__saveFilteredDataExeMode()
-
         self.__prepare__saveFilteredDataRMode()
-
-        if self.useFortran: self.__prepare__saveOmittedData()
-
-        if self.useFortran: self.__prepare__getExeFolderList()
         
         self.finalise()
         
@@ -386,22 +361,10 @@ class EmulatorData(PostProcessingMetaData):
     
     def runEmulator(self):
 
-        if self.useFortran:
-            self.__runFortranEmulator()
-        else:
-            self.__runPythonEmulator()
+        self.__runPythonEmulator()
         
         self.finalise()
         
-    def __runFortranEmulator(self):
-
-        self.__fortranEmulator__saveNamelists()
-
-        self.__fortranEmulator__linkExecutables()
-
-        self.__fortranEmulator__runTrain()
-
-        self.__fortranEmulator__runPredictionParallel()
 
     def __runPythonEmulator(self):
         if self.runLeaveOneOut: self.__pythonEmulator__leaveOneOutPython()
@@ -415,8 +378,7 @@ class EmulatorData(PostProcessingMetaData):
             print("Not postprocessing because runPostProcess set to False in configFile")
         
     def _runPostProcess(self):    
-        if self.useFortran: self.collectSimulatedVSPredictedDataFortran()
-
+        
         self._getAnomalyLimitsQuantile()
         self._getAnomalyLimitsConstant()
 
@@ -485,8 +447,6 @@ class EmulatorData(PostProcessingMetaData):
 
         self.simulationFilteredData = filteredData[self.designVariableNames + [ self.responseVariable ]]
         
-        self.simulationFilteredFortranData = filteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
-
         self.simulationFilteredCSV = filteredData[self.designVariableNames + [ self.responseVariable ]]
 
     def __filterAllConditions(self):
@@ -503,83 +463,7 @@ class EmulatorData(PostProcessingMetaData):
             else:
                 self.conditions[key] = eval("self.simulationCompleteData." + key + self.filteringVariablesWithConditions[key])
 
-    def __prepare__saveFilteredDataExeMode(self):
-
-        self.simulationFilteredFortranData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
-
-    def __prepare__saveFilteredDataRMode(self):
-        self.simulationFilteredCSV.to_csv(self.filteredFile)
-
-    def __prepare__saveOmittedData(self):
-
-        for ind in self.simulationFilteredFortranData.index:
-            folder = (self.exeDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-
-            train = self.simulationFilteredFortranData.drop(ind)
-            train.to_csv( folder / ("DATA_train_" + ind ), float_format="%017.11e", sep = " ", header = False, index = False )
-
-            predict = self.simulationFilteredFortranData.loc[ind].values
-            numpy.savetxt( folder / ("DATA_predict_" + ind), predict, fmt="%017.11e", newline = " ")
-
-    def __fortranEmulator__saveNamelists(self):
-
-
-
-        for ind in self.simulationFilteredFortranData.index:
-            folder = (self.exeDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-
-            trainNML = {"inputoutput":
-                    {"trainingDataInputFile":"DATA_train_" + ind,
-                     "trainedEmulatorGPFile" :"out_" + ind + ".gp",
-                     "separator": " ",
-                     "debugFlag": False}}
-
-            predictNML = {"inputoutput":
-                      {"trainingDataInputFile":"DATA_train_" + ind,
-	                   "trainedEmulatorGPFile":"out_" + ind + ".gp",
-	                   "predictionDataInputFile":"DATA_predict_" + ind,
-	                   "predictionOutputFile":"DATA_predict_output_" + ind,
-	                   "separator":" ",
-	                   "debugFlag":False}}
-
-            with open(folder / "train.nml", mode="w") as trainNMLFile:
-                f90nml.write(trainNML, trainNMLFile)
-            with open(folder / "predict.nml", mode="w") as predictNMLFile:
-                f90nml.write(predictNML, predictNMLFile)
-
-                
-    def __pythonEmulator__leaveOneOutPython(self):
-        
-        print(f'Emulating {self.name}, maxiter: {self.optimization["maxiter"]}, n_restarts_optimizer: {self.optimization["n_restarts_optimizer"]}')
-        t1 = time.time()
-        
-        with multiprocessing.Pool(processes = self.numCores) as pool:
-            
-            output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(self.simulationFilteredData),
-                                                                    self.simulationFilteredData.index.values,
-                                                                    repeat(self.optimization),
-                                                                    repeat(self.boundOrdo)) )
-        leaveOneOutArray = numpy.asarray(output)
-        
-        rmse = mean_squared_error(self.simulationFilteredData[self.responseVariable].values, leaveOneOutArray, squared=False)
-        
-        t2 = time.time()
-        timepercase = (t2 -t1) / (len(self.simulationFilteredData.index.values) )
-        print(f"""
-Emulating completed, {self.name}
-Time emulated {t2-t1:.1f},
-avg. {timepercase},
-maxiter: {self.optimization['maxiter']},
-n_restarts_optimizer: {self.optimization['n_restarts_optimizer']},
-boundOrdo: self.boundOrdo,
-rmse: {rmse:.2f}""")
-        
-        self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
-        
-        self.simulationCompleteData.loc[self.filterMask, self.emulatedVariable] = self.simulationFilteredData[self.emulatedVariable]
-            
+                            
     def __pythonEmulator_bootstrap(self):
         
         bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
@@ -639,194 +523,6 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         
         self.bootstrapDataFrame.to_csv( self.bootStrapFile )
             
-    def _getBootstrap(self):
-        bootstrapped = {}
-        for fitVariable in [self.emulatedVariable, self.linearFitVariable, self.correctedLinearFitVariable]:
-            if fitVariable in self.simulationCompleteData:
-                r_value, rSquared = self.__bootstrapping( fitVariable )
-                bootstrapped[ fitVariable + "_RValueBootStrapWithReplacement" ] = r_value
-                bootstrapped[ fitVariable +  "_RSquaredBootstrapWithReplacement" ] = rSquared
-        self.bootstrapReplacementDataFrame = pandas.DataFrame(data = bootstrapped)
-        self.bootstrapReplacementDataFrame.to_csv(self.bootstrapReplacementFile)
-                    
-        
-        
-    def __bootstrapping(self, fitVariable):
-        bootstrapRvalue = numpy.empty(self.bootstrappingParameters["iterations"] )
-        bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
-        
-        dataframe = self.simulationCompleteData[ self.simulationCompleteData[self.filterIndex]]
-        
-        print("Bootstrapping with replacement", fitVariable)
-        for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
-            sampleDF = dataframe.sample(n = dataframe.shape[0], replace = True, random_state = bootStrapIndex).sort_index()
-            
-            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ].values, sampleDF[ fitVariable ].values )
-            
-            bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
-            bootstrapRvalue[bootStrapIndex] = r_value
-            
-        return bootstrapRvalue, bootstrapRsquared
-
-    def __fortranEmulator__linkExecutables(self):
-        for ind in self.simulationFilteredFortranData.index:
-            folder = (self.exeDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-            run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
-            run(["ln","-sf", os.environ["GPPREDICTEMULATOR"], folder / "gp_predict"])
-
-    def __prepare__getExeFolderList(self):
-        indexGroup = self.simulationFilteredFortranData.index.values
-
-        self.exeFolderList = [ iterab[0] / iterab[1] for iterab in itertools.product([self.exeDataFolder], indexGroup) ]
-
-    def getTrainingFileName(folder):
-        ind = folder.name
-
-        return pathlib.Path("out_" + ind + ".gp")
-
-    def getPredictionInputFileName(folder):
-        ind = folder.name
-
-        return pathlib.Path("DATA_predict_" + ind)
-    def getPredictionOutputFileName(folder):
-        ind = folder.name
-
-        return pathlib.Path("DATA_predict_output_" + ind)
-
-    def __fortranEmulator__runTrain(self):
-
-        try:
-            pool = multiprocessing.Pool(processes = self.numCores)
-            for ind in pool.imap_unordered( self._runTrain, deepcopy(self.exeFolderList)):
-                 pass
-        except Exception as e:
-            print(e)
-            pool.close()
-        pool.close()
-
-    def _runTrain(self, folder):
-
-        os.chdir(folder)
-
-        trainingFile = EmulatorData.getTrainingFileName(folder)
-
-        trainingFileExists = trainingFile.is_file()
-
-        if trainingFileExists:
-            print(folder, "Training output file exists")
-            trainingFileIsEmpty = os.stat(trainingFile).st_size == 0
-
-            if trainingFileIsEmpty:
-                trainingFile.unlink() #remove file
-
-        if not trainingFileExists:
-            print("runTrain", folder)
-            run([ "./gp_train"])
-
-    def __fortranEmulator__runPredictionParallel(self):
-
-        try:
-            pool = multiprocessing.Pool(processes = self.numCores)
-            for ind in pool.imap_unordered( self._runPrediction, deepcopy(self.exeFolderList)):
-                 pass
-        except Exception as e:
-            print(e)
-            pool.close()
-        pool.close()
-
-    def runPredictionSerial(self):
-        for folder in self.exeFolderList:
-            self._runPrediction(folder)
-
-    def _runPrediction(self,folder):
-        os.chdir(folder)
-
-        predictionFile = EmulatorData.getPredictionOutputFileName(folder)
-
-        trainingFile = EmulatorData.getTrainingFileName(folder)
-
-        if not trainingFile.is_file():
-            raise Exception("Training output file does not exist. NOT predicting")
-
-        fileExists = predictionFile.is_file()
-
-        if fileExists:
-            print(folder, "Prediction output exists")
-            fileIsEmpty = numpy.isnan(self._readPredictedData("."))
-            if fileIsEmpty:
-                predictionFile.unlink() #remove file
-
-        if not fileExists:
-            print("runPrediction", folder)
-            run([ "./gp_predict"])
-
-
-
-    def collectSimulatedVSPredictedDataFortran(self):
-        datadict = {self.simulatedVariable: [],
-                    self.emulatedVariable: []}
-
-        for folder  in self.exeFolderList:
-            simulated = self._readSimulatedData(folder)
-            emulated  = self._readPredictedData(folder)
-
-
-            datadict[self.simulatedVariable].append(simulated)
-            datadict[self.emulatedVariable].append(emulated)
-
-
-
-        for key in datadict:
-
-            self.simulationFilteredFortranData[key] = datadict[key]
-
-        self._checkIntegrety()
-
-        self.simulationFilteredFortranData.drop(columns = self.responseIndicatorVariable, inplace = True)
-        self.simulationCompleteData.drop(columns = self.responseIndicatorVariable, inplace = True)
-
-        if self.allIsWell:
-            self.simulationFilteredFortranData.drop(columns = self.simulatedVariable, inplace = True )
-
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredFortranData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
-
-    def _readTrainingInputData(self, folder):
-        try:
-            data = pandas.read_csv( folder / EmulatorData.getTrainingFileName(folder), delim_whitespace = True, header = None)
-        except pandas.errors.EmptyDataError:
-            data = numpy.nan
-        return data
-
-    def _readSimulatedData(self, folder):
-        try:
-            data = pandas.read_csv( folder / EmulatorData.getPredictionInputFileName(folder), delim_whitespace = True, header = None).iloc[0,-1]
-        except pandas.errors.EmptyDataError:
-            data = numpy.nan
-        return data
-
-    def _readPredictionInputData(self, folder):
-        try:
-            data = pandas.read_csv( folder / EmulatorData.getPredictionInputFileName(folder), delim_whitespace = True, header = None).iloc[0,:-2]
-        except pandas.errors.EmptyDataError:
-            data = numpy.nan
-        return data
-
-    def _readPredictedData(self, folder):
-        try:
-            data = pandas.read_csv( folder / EmulatorData.getPredictionOutputFileName(folder), delim_whitespace = True, header = None).iloc[0,0]
-        except pandas.errors.EmptyDataError:
-            data = numpy.nan
-        return data
-
-    def _checkIntegrety(self):
-        self.allIsWell = True
-        for ind in self.simulationFilteredFortranData.index:
-            relativeError = numpy.abs( (self.simulationFilteredFortranData.loc[ind][self.responseVariable] - self.simulationFilteredFortranData.loc[ind][self.simulatedVariable])
-                      / self.simulationFilteredFortranData.loc[ind][self.responseVariable]) * 100.
-            if relativeError > 0.1:
-                print("case", ind, "relative error", relativeError)
-                self.allIsWell = False
 
     def __prepare__getSimulationCollection(self):
         self.simulationCollection = InputSimulation.getSimulationCollection( self.simulationCompleteData )
