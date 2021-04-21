@@ -27,8 +27,11 @@ from scipy import stats
 import LES2emu
 from subprocess import run
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import KFold
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 from itertools import repeat
-
+from sklearn.inspection import permutation_importance
 
 try:
     import f90nml
@@ -47,6 +50,7 @@ from PostProcessingMetaData import PostProcessingMetaData
 
 sys.path.append(os.environ["PYTHONEMULATOR"])
 from LeaveOneOut import LeaveOneOut
+from GaussianEmulator import GaussianEmulator
 
 class EmulatorData(PostProcessingMetaData):
 
@@ -172,7 +176,214 @@ class EmulatorData(PostProcessingMetaData):
         if self.useFortran: self.__prepare__getExeFolderList()
         
         self.finalise()
+        
+    def runMethodAnalysis(self):
+        self.__runCrossValidation()
+        self.__runFeatureImportance()
+        
+        self.finalise()
+    
+    def __runCrossValidation(self):
+        self.__runCrossValidation_init()
+        self.__runCrossValidationLinear()
+        self.__runCrossValidationComplexModels()
+        self.__crossValidationsToDataFrame()
+    
+    def __runCrossValidation_init(self):
+        self.kfold = KFold(n_splits = self.kFlodSplits, shuffle = True, random_state = 0)
+        
+        self.inputVariableMatrix = self.simulationFilteredData[ self.designVariableNames ]
+        self.responseVariableMatrix = self.simulationFilteredData[ self.responseVariable ]
+        self.radiativeWarming = self.simulationCompleteData[self.simulationCompleteData[ self.filterIndex ]][ "drflx" ]
+        
+        
+        outputShape = numpy.shape(self.responseVariableMatrix.values)
+        
+        self.models ={}
+        self.predictions = {}
+        for key in self.predictionVariableList:
+            
+            self.models[key] = [None]*self.kFlodSplits
+            self.predictions[key] = numpy.empty(outputShape)
+        
+        
+    def __runCrossValidationLinear(self):
+        
+        k = 0
+        for trainIndex, testIndex in self.kfold.split(self.radiativeWarming):
+            
+            inputTest = self.__get2DMatrixValues( self.radiativeWarming, testIndex )
+            radWarmingTrain = self.__get2DMatrixValues( self.radiativeWarming, trainIndex )
+            responseTrain = self.__get2DMatrixValues( self.responseVariableMatrix, trainIndex )
+            
+            
+            linearModel = self._getLinearRegression(radWarmingTrain, responseTrain)
+            self.models[self.linearFitVariable][k] = linearModel
+            self.predictions[self.linearFitVariable][testIndex] = self._getLinearPredictions(linearModel, inputTest)
+            
+            k += 1
+        
+        
+    
+    def __runCrossValidationComplexModels(self):
+        
+        k = 0
+        for trainIndex, testIndex in self.kfold.split(self.inputVariableMatrix):
+            
+            inputTrain = self.__get2DMatrixValues( self.inputVariableMatrix, trainIndex )
+            inputTest = self.__get2DMatrixValues( self.inputVariableMatrix, testIndex )
+            
+            
+            linearTrain = self.predictions[self.linearFitVariable][trainIndex].reshape(-1,1)
+            linearTest = self.predictions[self.linearFitVariable][testIndex].reshape(-1,1)
+            
+            responseTrain = self.__get2DMatrixValues( self.responseVariableMatrix, trainIndex )
+            
+            targetCorrectedTrain = responseTrain - linearTrain
+            
+            
+            clfCorrectionModel = self._getRandomForestLinearFitCorrection( \
+                                                        {"train" : inputTrain, 
+                                                         "linearTrain" : linearTrain},
+                                                         {"response" : responseTrain, 
+                                                          "corrected" : targetCorrectedTrain})
+                
+            self.models[self.correctedLinearFitVariable][k] = clfCorrectionModel
+            self.predictions[self.correctedLinearFitVariable][testIndex] = self._getRandomForestPredictions(clfCorrectionModel,
+                                                         {"input" : inputTest,
+                                                          "linear" : linearTest})
+                
+            emulatorObj = self._getEmulator( inputTrain, responseTrain )
+            self.models[self.emulatedVariable][k] = emulatorObj
+            self.predictions[self.emulatedVariable][testIndex] = self._getEmulatorPredictions(emulatorObj, inputTest)
+            
+            k += 1
+            
+       
+    def __crossValidationsToDataFrame(self):
+        
+        for key in self.predictions:
+            self.simulationFilteredData[ key ] = self.predictions[key]
+            self.simulationCompleteData.loc[self.filterMask, key] = self.simulationFilteredData[ key ]
+        
+             
+    def __get2DMatrixValues(self, dataframe, indexValues):
+        matrix = dataframe.iloc[indexValues].values
+        if matrix.ndim == 1:
+            matrix = matrix.reshape(-1,1)
+        return  matrix
+    
 
+    def _getLinearRegression(self, inputs, target):
+        linearModel = LinearRegression().fit( inputs, target)
+        
+        return linearModel
+    
+    def _getLinearPredictions(self, linearModel, tests ):
+        predictions = linearModel.predict( tests )
+        predictions = predictions.ravel()
+            
+        return predictions
+    
+    def _getRandomForestLinearFitCorrection(self, inputs : dict, targets : dict):
+        clfCorrectionModel = RandomForestRegressor(n_estimators=200, n_jobs=-1).fit(numpy.hstack((inputs["train"], inputs["linearTrain"])),
+                                                                                            targets["corrected"].ravel())
+        return clfCorrectionModel
+    
+    def _getRandomForestPredictions(self, clfCorrectionModel, tests):
+        correction = clfCorrectionModel.predict( self._getRandomForestInput(tests) ).reshape(-1,1)
+        predictions = tests["linear"] + correction
+        
+        predictions = predictions.ravel()
+        return predictions
+    
+    def _getRandomForestInput(self, tests):
+        matrix =  numpy.hstack((tests["input"], tests["linear"]))
+        return matrix
+    
+    def _getEmulator(self, inputs, target):
+        emulatorObj = GaussianEmulator( inputs, target,
+                                    maxiter = self.optimization["maxiter"],
+                                    n_restarts_optimizer = self.optimization["n_restarts_optimizer"],
+                                    boundOrdo = self.boundOrdo)
+        emulatorObj.main()
+        
+        return emulatorObj
+        
+        
+    def _getEmulatorPredictions(self, emulatorObj, tests):
+        emulatorObj.predictEmulator( tests )
+        predictions = emulatorObj.getPredictions().ravel()
+        
+        return predictions
+    
+    def _getEmulatorInput(self, emulatorObj, tests):
+        return emulatorObj.getScaledPredictionMatrix( tests )
+    
+    def _getEmulatorScaledTarget(self, emulatorObj, target):
+        return emulatorObj.getScaledTargetMatrix( target )
+    
+    def __runFeatureImportance(self):
+        self.__collectFeatureImportance()
+        self.__featureImportanceToDataframes()
+                                                                               
+    def __collectFeatureImportance(self):
+        self.permutations = {}
+        self.permutations[self.emulatedVariable] = [None]*self.kFlodSplits
+        self.permutations[self.correctedLinearFitVariable] = [None]*self.kFlodSplits
+        k = 0
+        for trainIndex, testIndex in self.kfold.split(self.inputVariableMatrix):
+            inputTest = self.__get2DMatrixValues( self.inputVariableMatrix, testIndex )
+            linearTest = self.predictions[self.linearFitVariable][testIndex].reshape(-1,1)
+            responseTest = self.__get2DMatrixValues( self.responseVariableMatrix, testIndex )
+            
+            emulatorObj = self.models[self.emulatedVariable][k]
+            emulatorModel = emulatorObj.getEmulator()
+            
+            emulatorFeatImportance = permutation_importance( emulatorModel,
+                                                                      self._getEmulatorInput(emulatorObj, inputTest),
+                                                                      self._getEmulatorScaledTarget(emulatorObj, responseTest) )["importances_mean"]
+            self.permutations[self.emulatedVariable][k] = emulatorFeatImportance
+            self.permutations[self.correctedLinearFitVariable][k] = permutation_importance(self.models[self.correctedLinearFitVariable][k], 
+                                                                                self._getRandomForestInput({"input": inputTest,
+                                                                                                            "linear" : linearTest})
+                                                                                , responseTest)["importances_mean"]
+            k +=1
+    
+    def __featureImportanceToDataframes(self):
+        self.__featureVariables()
+        self.__featureData()
+        self.__featureDataFrame()
+        self.__featureFinalise()
+        
+    def __featureVariables(self):
+        self.featureVariables = self.designVariableNames + [self.responseVariable + "_linearFit"]
+        self.featureMeanVariables = [kk + "_FeatureImportanceMean" for kk in self.featureVariables]
+        self.featureStdVariables = [kk + "_FeatureImportanceStd" for kk in self.featureVariables]
+        self.featureColumns = self.featureMeanVariables + self.featureStdVariables
+    
+    def __featureData(self):
+        data ={}
+        data[self.emulatedVariable] = {}
+        data[self.correctedLinearFitVariable] = {}
+        
+        for key in data:
+            data[key]["mean"] = numpy.asarray(self.permutations[key][:]).mean(axis = 0)
+            data[key]["std"] = numpy.asarray(self.permutations[key][:]).std(axis = 0)
+        
+        for subkey in data[self.emulatedVariable]:
+            data[self.emulatedVariable][subkey] = numpy.append(data[self.emulatedVariable][subkey], numpy.nan)
+            
+        self.featuredataframedata = {}
+        
+        for key in data:
+            self.featuredataframedata[key] = numpy.concatenate( (data[key]["mean"], data[key]["std"]))
+    def __featureDataFrame(self):
+        self.featureDataFrame = pandas.DataFrame.from_dict(self.featuredataframedata, orient="index", columns = self.featureColumns)
+        
+    def __featureFinalise(self):
+        self.featureDataFrame.to_csv(self.featureImportanceFile)
+    
     def runEmulator(self):
 
         if self.useFortran:
@@ -269,12 +480,14 @@ class EmulatorData(PostProcessingMetaData):
     def __prepare__filter(self):
 
         self.__filterAllConditions()
+        self.filterMask = self.simulationCompleteData[ self.filterIndex ]
+        filteredData = self.simulationCompleteData[ self.filterMask ].copy()
 
-        self.simulationFilteredData = self.simulationCompleteData[ self.simulationCompleteData[self.filterIndex]]
+        self.simulationFilteredData = filteredData[self.designVariableNames + [ self.responseVariable ]]
+        
+        self.simulationFilteredFortranData = filteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
 
-        self.simulationFilteredData = self.simulationFilteredData[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
-
-        self.simulationFilteredCSV = self.simulationFilteredData[self.designVariableNames + [ self.responseVariable ]]
+        self.simulationFilteredCSV = filteredData[self.designVariableNames + [ self.responseVariable ]]
 
     def __filterAllConditions(self):
         self.__getConditions()
@@ -292,28 +505,28 @@ class EmulatorData(PostProcessingMetaData):
 
     def __prepare__saveFilteredDataExeMode(self):
 
-        self.simulationFilteredData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
+        self.simulationFilteredFortranData.to_csv( self.dataFile, float_format="%017.11e", sep = " ", header = False, index = False, index_label = False )
 
     def __prepare__saveFilteredDataRMode(self):
         self.simulationFilteredCSV.to_csv(self.filteredFile)
 
     def __prepare__saveOmittedData(self):
 
-        for ind in self.simulationFilteredData.index:
+        for ind in self.simulationFilteredFortranData.index:
             folder = (self.exeDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
 
-            train = self.simulationFilteredData.drop(ind)
+            train = self.simulationFilteredFortranData.drop(ind)
             train.to_csv( folder / ("DATA_train_" + ind ), float_format="%017.11e", sep = " ", header = False, index = False )
 
-            predict = self.simulationFilteredData.loc[ind].values
+            predict = self.simulationFilteredFortranData.loc[ind].values
             numpy.savetxt( folder / ("DATA_predict_" + ind), predict, fmt="%017.11e", newline = " ")
 
     def __fortranEmulator__saveNamelists(self):
 
 
 
-        for ind in self.simulationFilteredData.index:
+        for ind in self.simulationFilteredFortranData.index:
             folder = (self.exeDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
 
@@ -336,28 +549,6 @@ class EmulatorData(PostProcessingMetaData):
             with open(folder / "predict.nml", mode="w") as predictNMLFile:
                 f90nml.write(predictNML, predictNMLFile)
 
-
-    def __pythonEmulator__saveYAMLconfigFiles(self):
-
-        for ind in self.simulationFilteredData.index:
-            folder = (self.exeDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-
-            configuration = {"trainingDataInputFile": str( folder / ("DATA_train_" + ind)),
-                          "predictionDataInputFile" : str( folder / ("DATA_predict_" + ind)),
-                          "predictionOutputFile" : str(folder / ("DATA_predict_output_" + ind)),}
-
-            FileSystem.writeYAML(folder / "config.yaml", configuration)
-
-    def __pythonEmulator__linkExecutables(self):
-        for ind in self.simulationFilteredData.index:
-            folder = (self.exeDataFolder / str(ind) )
-            folder.mkdir( parents=True, exist_ok = True )
-
-            pythonEmulatorFolder = pathlib.Path( os.environ["PYTHONEMULATOR"] )
-
-            for pythonFile in pythonEmulatorFolder.glob("**/*.py"):
-                run(["ln","-sf", pythonFile, folder / pythonFile.name ])
                 
     def __pythonEmulator__leaveOneOutPython(self):
         
@@ -387,7 +578,7 @@ rmse: {rmse:.2f}""")
         
         self.simulationFilteredData[self.emulatedVariable] = leaveOneOutArray
         
-        self.simulationCompleteData = pandas.concat([ self.simulationCompleteData, self.simulationFilteredData[self.emulatedVariable] ], axis = 1)
+        self.simulationCompleteData.loc[self.filterMask, self.emulatedVariable] = self.simulationFilteredData[self.emulatedVariable]
             
     def __pythonEmulator_bootstrap(self):
         
@@ -478,14 +669,14 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
         return bootstrapRvalue, bootstrapRsquared
 
     def __fortranEmulator__linkExecutables(self):
-        for ind in self.simulationFilteredData.index:
+        for ind in self.simulationFilteredFortranData.index:
             folder = (self.exeDataFolder / str(ind) )
             folder.mkdir( parents=True, exist_ok = True )
             run(["ln","-sf", os.environ["GPTRAINEMULATOR"], folder / "gp_train"])
             run(["ln","-sf", os.environ["GPPREDICTEMULATOR"], folder / "gp_predict"])
 
     def __prepare__getExeFolderList(self):
-        indexGroup = self.simulationFilteredData.index.values
+        indexGroup = self.simulationFilteredFortranData.index.values
 
         self.exeFolderList = [ iterab[0] / iterab[1] for iterab in itertools.product([self.exeDataFolder], indexGroup) ]
 
@@ -588,17 +779,17 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
 
         for key in datadict:
 
-            self.simulationFilteredData[key] = datadict[key]
+            self.simulationFilteredFortranData[key] = datadict[key]
 
         self._checkIntegrety()
 
-        self.simulationFilteredData.drop(columns = self.responseIndicatorVariable, inplace = True)
+        self.simulationFilteredFortranData.drop(columns = self.responseIndicatorVariable, inplace = True)
         self.simulationCompleteData.drop(columns = self.responseIndicatorVariable, inplace = True)
 
         if self.allIsWell:
-            self.simulationFilteredData.drop(columns = self.simulatedVariable, inplace = True )
+            self.simulationFilteredFortranData.drop(columns = self.simulatedVariable, inplace = True )
 
-        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
+        self.simulationCompleteData = self.simulationCompleteData.merge( self.simulationFilteredFortranData, on = ["ID", self.responseVariable] + self.designVariableNames, how = "left")
 
     def _readTrainingInputData(self, folder):
         try:
@@ -630,9 +821,9 @@ sample size: {self.bootstrappingParameters["sampleSize"]}
 
     def _checkIntegrety(self):
         self.allIsWell = True
-        for ind in self.simulationFilteredData.index:
-            relativeError = numpy.abs( (self.simulationFilteredData.loc[ind][self.responseVariable] - self.simulationFilteredData.loc[ind][self.simulatedVariable])
-                      / self.simulationFilteredData.loc[ind][self.responseVariable]) * 100.
+        for ind in self.simulationFilteredFortranData.index:
+            relativeError = numpy.abs( (self.simulationFilteredFortranData.loc[ind][self.responseVariable] - self.simulationFilteredFortranData.loc[ind][self.simulatedVariable])
+                      / self.simulationFilteredFortranData.loc[ind][self.responseVariable]) * 100.
             if relativeError > 0.1:
                 print("case", ind, "relative error", relativeError)
                 self.allIsWell = False

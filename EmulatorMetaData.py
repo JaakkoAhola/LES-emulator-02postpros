@@ -53,6 +53,8 @@ class EmulatorMetaData:
         self.runBootStrap = self.configFile["runBootStrap"]
         self.runPostProcessing = self.configFile["runPostProcessing"]    
         
+        self.kFlodSplits = self.configFile["kFlodSplits"]
+        
 
     def _readConfigFile(self):
         self.configFile = FileSystem.readYAML(self.configFile)
@@ -79,6 +81,8 @@ class EmulatorMetaData:
         self.linearFitVariable = self.joinList([self.filterIndex, "LinearFit"])
         
         self.correctedLinearFitVariable = self.joinList([self.filterIndex, "CorrectedLinearFit"])
+        
+        self.predictionVariableList = [self.emulatedVariable, self.linearFitVariable, self.correctedLinearFitVariable]
         
     def joinList(self, lista):
         return "_".join(lista)

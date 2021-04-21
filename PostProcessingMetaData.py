@@ -54,6 +54,8 @@ PostProcessingMetaData Class
         self.filteredFile = self.dataOutputFolder / (self.name + "_filtered.csv")
 
         self.completeFile = self.dataOutputFolder / (self.name + "_complete.csv")
+        
+        self.featureImportanceFile = self.dataOutputFolder / (self.name + "_featureImportance.csv")
 
         self.testFolderExists(self.trainingSimulationRootFolder)
 
