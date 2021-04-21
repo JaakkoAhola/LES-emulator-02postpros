@@ -40,11 +40,15 @@ def main():
                                             )
                 }
 
-    for key in emulatorSets:
-        emulatorSets[key].prepare()
-        emulatorSets[key].runMethodAnalysis()
-        emulatorSets[key].runEmulator()
-        emulatorSets[key].postProcess()
+    emulatorSets["LVL3Night"].prepare()
+    emulatorSets["LVL3Night"].runMethodAnalysis()
+    emulatorSets["LVL3Night"].postProcess()
+    aa = emulatorSets["LVL3Night"]
+    # for key in emulatorSets:
+        # emulatorSets[key].prepare()
+        # emulatorSet
+        #emulatorSets[key].runEmulator()
+        #emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
     main()
