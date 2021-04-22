@@ -27,7 +27,6 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-from itertools import repeat
 from sklearn.inspection import permutation_importance
 
 
@@ -41,7 +40,6 @@ from InputSimulation import InputSimulation
 from PostProcessingMetaData import PostProcessingMetaData
 
 sys.path.append(os.environ["PYTHONEMULATOR"])
-from LeaveOneOut import LeaveOneOut
 from GaussianEmulator import GaussianEmulator
 
 class EmulatorData(PostProcessingMetaData):
@@ -91,6 +89,8 @@ class EmulatorData(PostProcessingMetaData):
         self.toleranceForInEqualConditions = tolerance
 
     def prepare(self):
+        start = time.time()
+        print("Preparing")
         if self.completeFile.is_file():
             # File exists, lets override or read the file
             
@@ -111,6 +111,9 @@ class EmulatorData(PostProcessingMetaData):
         else:
             print("File does not exist, let's create it")
             self._prepare_override()
+        
+        end = time.time()
+        print(f"\nPreparing completed in { end - start : .1f} seconds")
     def __prepare_CompleteDataPreExisted(self):
         self.__prepare__filter()
         self.__prepare__getSimulationCollection()
@@ -153,10 +156,13 @@ class EmulatorData(PostProcessingMetaData):
         self.finalise()
         
     def runMethodAnalysis(self):
+        start = time.time()
+        print("Method analysis")
         self.__runCrossValidation()
-        self.__runFeatureImportance()
         
         self.finalise()
+        end = time.time()
+        print(f"\nScript completed in { end - start : .1f} seconds")
     
     def __runCrossValidation(self):
         self.__runCrossValidation_init()
@@ -298,9 +304,13 @@ class EmulatorData(PostProcessingMetaData):
     def _getEmulatorScaledTarget(self, emulatorObj, target):
         return emulatorObj.getScaledTargetMatrix( target )
     
-    def __runFeatureImportance(self):
+    def featureImportance(self):
+        start = time.time()
+        print("Feature importance")
         self.__collectFeatureImportance()
         self.__featureImportanceToDataframes()
+        end = time.time()
+        print(f"\Feature importance completed in { end - start : .1f} seconds")
                                                                                
     def __collectFeatureImportance(self):
         self.permutations = {}
@@ -359,21 +369,31 @@ class EmulatorData(PostProcessingMetaData):
     def __featureFinalise(self):
         self.featureDataFrame.to_csv(self.featureImportanceFile)
     
-    def runEmulator(self):
-
-        self.__runPythonEmulator()
+    def bootStrap(self):
+        if self.runBootStrap:
+            start = time.time()
+            print("Bootstrapping")
+            
+            self.__init_bootstrap()
+            self.__bootstrap_linear()
+            self.__bootstrap_complexModels()
+            self.__bootstrap_metricsByIteration()
+            self.__bootstrap_StatsCombined()
+            self.__bootstrap_dataframe()
+            self.__bootstrap_finalise()
         
-        self.finalise()
+            end = time.time()
+            print(f"\nBootstrapping completed in { end - start : .1f} seconds")
         
-
-    def __runPythonEmulator(self):
-        if self.runLeaveOneOut: self.__pythonEmulator__leaveOneOutPython()
-        if self.runBootStrap: self.__pythonEmulator_bootstrap()
 
     def postProcess(self):
         
         if self.runPostProcessing:
+            start = time.time()
+            print("Postprocessing")
             self._runPostProcess()
+            end = time.time()
+            print(f"\nPostprocessing completed in { end - start : .1f} seconds")
         else:
             print("Not postprocessing because runPostProcess set to False in configFile")
         
@@ -385,8 +405,6 @@ class EmulatorData(PostProcessingMetaData):
         self._getAnomalies()
 
         self._getStats()
-
-        self._getBootstrap()
 
         self._finaliseStats()
         self._finaliseAnomalies()
@@ -464,65 +482,108 @@ class EmulatorData(PostProcessingMetaData):
                 self.conditions[key] = eval("self.simulationCompleteData." + key + self.filteringVariablesWithConditions[key])
 
                             
-    def __pythonEmulator_bootstrap(self):
         
-        bootstrapRsquared = numpy.empty( self.bootstrappingParameters["iterations"] )
-        bootstrapRMSE = numpy.empty( self.bootstrappingParameters["iterations"] )
-        bootstrapAbsErrorSum = numpy.empty( self.bootstrappingParameters["iterations"] )
-        bootstrapAbsErrorVar = numpy.empty( self.bootstrappingParameters["iterations"] )
-        bootstrapLinFitRSquared = numpy.empty( self.bootstrappingParameters["iterations"] )
-        print("Bootstrapping")
-        t1 = time.time()
+    def __init_bootstrap(self):
+        self.bootstrapStats = {}
+        
+        self.bootstrapKFold = KFold(n_splits = self.kFlodSplits, shuffle = True, random_state = 0)
+        
+        self.bootstrapModelList = ["linearFit", "emulator", "correctedLinearFit", "simulated"]
+        
+        self.bootstrapMetrics = ["rSquared", "rmse"]
+        
+        self.bootstrapModelValues = {}
+        
+        for key in self.bootstrapModelList:
+            self.bootstrapModelValues[key] = numpy.empty((self.bootstrappingParameters["iterations"], self.bootstrappingParameters["sampleSize"]))
+        
+        for key in self.bootstrapModelList[:-1]:
+            self.bootstrapStats[key] = {}
+            for metric in self.bootstrapMetrics:
+                self.bootstrapStats[key][metric] = numpy.empty( self.bootstrappingParameters["iterations"] )
+        
+        
+    def __bootstrap_linear(self):
+    
         for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
-            sampleDF = self.simulationCompleteData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()
             
-            #linfit
-            radiativeWarming  = sampleDF["drflx"].values
-            updraft =  sampleDF[ self.responseVariable ].values
-
-            slope, intercept, r_value, p_value, std_err = stats.linregress(radiativeWarming, updraft)
-            bootstrapLinFitRSquared[bootStrapIndex] =  numpy.power(r_value, 2)
-            #linfit end
-
-            sampleDF = sampleDF[self.designVariableNames + [self.responseIndicatorVariable , self.responseVariable]]
+            sampleDF = self.simulationCompleteData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()        
+        
+            BSresponseVariableMatrix = sampleDF[ self.responseVariable ]
+            BSradiativeWarming = sampleDF["drflx"]
             
-            with multiprocessing.Pool( processes = self.numCores ) as pool:
-                output = pool.starmap( LeaveOneOut.loopLeaveOneOut, zip(repeat(sampleDF),
-                                                                    sampleDF.index.values,
-                                                                    repeat(self.optimization),
-                                                                    repeat(self.boundOrdo)) )
-            leaveOneOutArray = numpy.asarray( output )
+            self.bootstrapModelValues["simulated"][bootStrapIndex][:] = BSresponseVariableMatrix
+            
+            for trainIndex, testIndex in self.bootstrapKFold.split(BSradiativeWarming):
+                inputTest = self.__get2DMatrixValues( BSradiativeWarming, testIndex )
+                radWarmingTrain = self.__get2DMatrixValues( BSradiativeWarming, trainIndex )
+                responseTrain = self.__get2DMatrixValues( BSresponseVariableMatrix, trainIndex )
+            
+            
+                linearModel = self._getLinearRegression(radWarmingTrain, responseTrain)
+                self.bootstrapModelValues["linearFit"][bootStrapIndex][testIndex] = self._getLinearPredictions(linearModel, inputTest)
+    
+    def __bootstrap_complexModels(self):
+        for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
+            
+            sampleDF = self.simulationCompleteData.sample(n = self.bootstrappingParameters["sampleSize"], random_state = bootStrapIndex).sort_index()        
+        
+            BSinputVariableMatrix =  sampleDF[ self.designVariableNames]
+            BSresponseVariableMatrix = sampleDF[ self.responseVariable ]
+            
+            for trainIndex, testIndex in self.bootstrapKFold.split(BSinputVariableMatrix):
+            
+                inputTrain = self.__get2DMatrixValues( BSinputVariableMatrix, trainIndex )
+                inputTest = self.__get2DMatrixValues( BSinputVariableMatrix, testIndex )
                 
-            absError = numpy.abs( leaveOneOutArray - sampleDF[ self.responseVariable ].values)
+                
+                linearTrain = self.bootstrapModelValues["linearFit"][bootStrapIndex][trainIndex].reshape(-1,1)
+                linearTest = self.bootstrapModelValues["linearFit"][bootStrapIndex][testIndex].reshape(-1,1)
+                
+                responseTrain = self.__get2DMatrixValues( BSresponseVariableMatrix, trainIndex )
+                
+                targetCorrectedTrain = responseTrain - linearTrain
+                
+                
+                clfCorrectionModel = self._getRandomForestLinearFitCorrection( \
+                                                            {"train" : inputTrain, 
+                                                             "linearTrain" : linearTrain},
+                                                             {"response" : responseTrain, 
+                                                              "corrected" : targetCorrectedTrain})
+                    
+                self.bootstrapModelValues["correctedLinearFit"][bootStrapIndex][testIndex] = self._getRandomForestPredictions(clfCorrectionModel,
+                                                             {"input" : inputTest,
+                                                              "linear" : linearTest})
+                    
+                emulatorObj = self._getEmulator( inputTrain, responseTrain )
+                self.bootstrapModelValues["emulator"][bootStrapIndex][testIndex] = self._getEmulatorPredictions(emulatorObj, inputTest)
+
+    def __bootstrap_metricsByIteration(self):
+        for key in self.bootstrapModelList[:-1]:
+            for bootStrapIndex in range(self.bootstrappingParameters["iterations"]):
+                predicted = self.bootstrapModelValues[key][bootStrapIndex]
+                true = self.bootstrapModelValues["simulated"][bootStrapIndex]
+                
+                statistics = self._statsMethod(true, predicted)
+                
+                for metric in self.bootstrapMetrics:
+                    self.bootstrapStats[key][metric][bootStrapIndex] = statistics[metric]
+
+    def __bootstrap_StatsCombined(self):
+        self.bootstrapAnalysis = {}                 
+        for key in self.bootstrapStats:
             
-            bootstrapAbsErrorSum[bootStrapIndex] = numpy.sum(absError)
+            self.bootstrapAnalysis[key] = {}
             
-            bootstrapAbsErrorVar[bootStrapIndex] = numpy.var(absError)
-            
-            bootstrapRMSE[bootStrapIndex] = mean_squared_error( sampleDF[ self.responseVariable ].values, leaveOneOutArray, squared = False  )
-            
-            slope, intercept, r_value, p_value, std_err = stats.linregress( sampleDF[ self.responseVariable ].values, leaveOneOutArray )
-            
-            bootstrapRsquared[bootStrapIndex] = numpy.power(r_value, 2)
-        t2 = time.time()
-        timepercase = (t2 -t1) / ( self.bootstrappingParameters["iterations"] * self.bootstrappingParameters["sampleSize"]  )
-        print(f"""
-Bootstrapping completed, {self.name}
-Time bootstrapped {t2-t1:.1f},
-avg. {timepercase},
-iterations: {self.bootstrappingParameters["iterations"]},
-sample size: {self.bootstrappingParameters["sampleSize"]}
-""")
-        
-            
-        self.bootstrapDataFrame = pandas.DataFrame(data = {"AbsErrorSum": bootstrapAbsErrorSum,
-                                 "AbsErrorVar" :  bootstrapAbsErrorVar,
-                                 "RMSE": bootstrapRMSE,
-                                 "RSquared" : bootstrapRsquared,
-                                 "RSquaredLinFit" : bootstrapLinFitRSquared})
-        
-        self.bootstrapDataFrame.to_csv( self.bootStrapFile )
-            
+            for metric in self.bootstrapStats[key]:
+                self.bootstrapAnalysis[key][metric + "_Mean" ] = self.bootstrapStats[key][metric].mean()
+                self.bootstrapAnalysis[key][metric + "_Std" ] = self.bootstrapStats[key][metric].std()
+    
+    def __bootstrap_dataframe(self):
+        self.bootstrapDataFrame = pandas.DataFrame.from_dict(self.bootstrapAnalysis, orient="index")
+
+    def __bootstrap_finalise(self):
+        self.bootstrapDataFrame.to_csv(self.bootStrapFile)
 
     def __prepare__getSimulationCollection(self):
         self.simulationCollection = InputSimulation.getSimulationCollection( self.simulationCompleteData )
