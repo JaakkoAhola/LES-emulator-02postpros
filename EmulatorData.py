@@ -90,15 +90,15 @@ class EmulatorData(PostProcessingMetaData):
 
     def prepare(self):
         start = time.time()
-        print("Preparing")
+        print(f"{self.name} Preparing")
         if self.completeFile.is_file():
             # File exists, lets override or read the file
             
             if self.override:
-                print("File exists, but let's override")
+                print(f"{self.name} File exists, but let's override")
                 self._prepare_override()
             else:
-                print("File exists, let's read it")
+                print(f"{self.name} File exists, let's read it")
                 self.simulationCompleteData = pandas.read_csv( self.completeFile, index_col = 0)
                 reg = re.compile("\d{1,9}\S_\d{0,9}")
                 if all([reg.match(ind) is not None for ind in self.simulationCompleteData.index.values]):
@@ -109,11 +109,11 @@ class EmulatorData(PostProcessingMetaData):
                     self.__prepare_appendNewFilterIndexToCompleteData()
             
         else:
-            print("File does not exist, let's create it")
+            print(f"{self.name} File does not exist, let's create it")
             self._prepare_override()
         
         end = time.time()
-        print(f"\nPreparing completed in { end - start : .1f} seconds")
+        print(f"{self.name} Preparing completed in { end - start : .1f} seconds")
     def __prepare_CompleteDataPreExisted(self):
         self.__prepare__filter()
         self.__prepare__getSimulationCollection()
@@ -157,12 +157,12 @@ class EmulatorData(PostProcessingMetaData):
         
     def runMethodAnalysis(self):
         start = time.time()
-        print("Method analysis")
+        print(f"{self.name} Method analysis")
         self.__runCrossValidation()
         
         self.finalise()
         end = time.time()
-        print(f"\nScript completed in { end - start : .1f} seconds")
+        print(f"{self.name} Method analysis completed in { end - start : .1f} seconds")
     
     def __runCrossValidation(self):
         self.__runCrossValidation_init()
@@ -306,11 +306,11 @@ class EmulatorData(PostProcessingMetaData):
     
     def featureImportance(self):
         start = time.time()
-        print("Feature importance")
+        print(f"{self.name} Feature importance")
         self.__collectFeatureImportance()
         self.__featureImportanceToDataframes()
         end = time.time()
-        print(f"\Feature importance completed in { end - start : .1f} seconds")
+        print(f"{self.name} Feature importance completed in { end - start : .1f} seconds")
                                                                                
     def __collectFeatureImportance(self):
         self.permutations = {}
@@ -322,6 +322,8 @@ class EmulatorData(PostProcessingMetaData):
             linearTest = self.predictions[self.linearFitVariable][testIndex].reshape(-1,1)
             responseTest = self.__get2DMatrixValues( self.responseVariableMatrix, testIndex )
             
+            targetCorrectedTest = responseTest - linearTest
+            
             emulatorObj = self.models[self.emulatedVariable][k]
             emulatorModel = emulatorObj.getEmulator()
             
@@ -332,7 +334,7 @@ class EmulatorData(PostProcessingMetaData):
             self.permutations[self.correctedLinearFitVariable][k] = permutation_importance(self.models[self.correctedLinearFitVariable][k], 
                                                                                 self._getRandomForestInput({"input": inputTest,
                                                                                                             "linear" : linearTest})
-                                                                                , responseTest)["importances_mean"]
+                                                                                , targetCorrectedTest)["importances_mean"]
             k +=1
     
     def __featureImportanceToDataframes(self):
@@ -372,7 +374,7 @@ class EmulatorData(PostProcessingMetaData):
     def bootStrap(self):
         if self.runBootStrap:
             start = time.time()
-            print("Bootstrapping")
+            print(f"{self.name} Bootstrapping")
             
             self.__init_bootstrap()
             self.__bootstrap_linear()
@@ -383,19 +385,19 @@ class EmulatorData(PostProcessingMetaData):
             self.__bootstrap_finalise()
         
             end = time.time()
-            print(f"\nBootstrapping completed in { end - start : .1f} seconds")
+            print(f"{self.name} Bootstrapping completed in { end - start : .1f} seconds")
         
 
     def postProcess(self):
         
         if self.runPostProcessing:
             start = time.time()
-            print("Postprocessing")
+            print(f"{self.name} Postprocessing")
             self._runPostProcess()
             end = time.time()
-            print(f"\nPostprocessing completed in { end - start : .1f} seconds")
+            print(f"{self.name} Postprocessing completed in { end - start : .1f} seconds")
         else:
-            print("Not postprocessing because runPostProcess set to False in configFile")
+            print(f"{self.name} Not postprocessing because runPostProcess set to False in configFile")
         
     def _runPostProcess(self):    
         
@@ -722,7 +724,7 @@ class EmulatorData(PostProcessingMetaData):
 
         dataframe["wposWeighted"] = numpy.zeros(numpy.shape(dataframe["wpos"]))
 
-        print("Start calculation of weighted updrafts " + self.name)
+        print(f"{self.name} Start calculation of weighted updrafts " + self.name)
 
         t1 = time.time()
 
@@ -746,7 +748,7 @@ class EmulatorData(PostProcessingMetaData):
             dataframe.loc[ dataframe.index == emul, "wposWeighted"] = weighted
         t2 = time.time()
 
-        print(f"Time to calculate updrafts {t2-t1:.1f}")
+        print(f"{self.name} Time to calculate updrafts {t2-t1:.1f}")
 
 
 
