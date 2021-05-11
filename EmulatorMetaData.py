@@ -23,6 +23,8 @@ class EmulatorMetaData:
         
         self.initResponseVariableDerivatives()
         
+        self.initDesignVariables()
+        
     def initConfigFile(self):
         self._readConfigFile()
         
@@ -83,6 +85,16 @@ class EmulatorMetaData:
         self.correctedLinearFitVariable = self.joinList([self.filterIndex, "CorrectedLinearFit"])
         
         self.predictionVariableList = [ self.linearFitVariable, self.correctedLinearFitVariable, self.emulatedVariable]
+        
+    def initDesignVariables(self):
+        self.meteorologicalVariables = ["tpot_pbl", "tpot_inv", "q_inv", "lwp", "pblh",  ]
+        
+        self.microphysicsVariablesPool = {"SB" : ["cdnc"],
+                                          "SALSA": ["ks", "as", "cs", "rdry_AS_eff"]}
+        
+        self.solarZenithAngle = ["cos_mu"]
+        
+        self.designVariablePool = self.meteorologicalVariables + [item for sublist in  list(self.microphysicsVariablesPool.values()) for item in sublist] + self.solarZenithAngle
         
     def joinList(self, lista):
         return "_".join(lista)

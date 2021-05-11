@@ -420,19 +420,19 @@ class EmulatorData(PostProcessingMetaData):
         self.phase01 = pandas.read_csv(self.phase01CSVFile, index_col=0)
 
     def __prepare__getDesignVariableNames(self):
-        self.meteorologicalVariables = ["q_inv", "tpot_inv", "lwp", "tpot_pbl", "pblh"]
+        
 
         self.microphysics = self.ID_prefix[0]
 
         self.timeOfDay = self.ID_prefix[1]
 
         if self.microphysics == "3":
-            self.microphysicsVariables = ["cdnc"]
+            self.microphysicsVariables = self.microphysicsVariablesPool["SB"]
         elif self.microphysics == "4":
-            self.microphysicsVariables = ["ks", "as", "cs", "rdry_AS_eff"]
+            self.microphysicsVariables = self.microphysicsVariablesPool["SALSA"]
 
         if self.timeOfDay == "D":
-            self.timeOfDayVariable = ["cos_mu"]
+            self.timeOfDayVariable = self.solarZenithAngle
         else:
             self.timeOfDayVariable = []
 
