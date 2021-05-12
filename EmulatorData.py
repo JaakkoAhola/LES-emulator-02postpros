@@ -45,12 +45,11 @@ from GaussianEmulator import GaussianEmulator
 class EmulatorData(PostProcessingMetaData):
 
     def __init__(self, name : str,
-                 trainingSimulationRootFolder : list,
-                 dataOutputRootFolder : list,
-                 configFile : str
+                 trainingSimulationSubFolder : str,
+                 locationsFile : str
                  ):
         
-        super().__init__(name, trainingSimulationRootFolder, dataOutputRootFolder, configFile  = configFile)
+        super().__init__(name, trainingSimulationSubFolder, locationsFile)
         
         self._readOptimizationConfigs()
         
@@ -129,8 +128,6 @@ class EmulatorData(PostProcessingMetaData):
         
         self._fillUpDrflxValues()
 
-        self.__prepare__saveFilteredDataRMode()
-
         self.finalise()
             
     def _prepare_override(self):
@@ -151,8 +148,6 @@ class EmulatorData(PostProcessingMetaData):
         
         self._fillUpDrflxValues()
 
-        self.__prepare__saveFilteredDataRMode()
-        
         self.finalise()
         
     def runMethodAnalysis(self):
@@ -247,6 +242,7 @@ class EmulatorData(PostProcessingMetaData):
             self.simulationFilteredData[ key ] = self.predictions[key]
             self.simulationCompleteData.loc[self.filterMask, key] = self.simulationFilteredData[ key ]
         
+        self.simulationCompleteDataMasked = self.simulationCompleteData[ self.filterMask ]
              
     def __get2DMatrixValues(self, dataframe, indexValues):
         matrix = dataframe.iloc[indexValues].values
@@ -667,7 +663,7 @@ class EmulatorData(PostProcessingMetaData):
 
         self.anomalyLimitsCombined = pandas.concat([low,high], axis = 1, verify_integrity=True)
 
-        self.anomalyLimitsCombined.to_csv(self.dataOutputRootFolder / "anomalyLimits.csv")
+        self.anomalyLimitsCombined.to_csv(self.postProsDataRootFolder / "anomalyLimits.csv")
 
 
     def _fillUpDrflxValues(self):

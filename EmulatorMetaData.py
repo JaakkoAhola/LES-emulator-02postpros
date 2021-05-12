@@ -10,12 +10,12 @@ import sys
 import os
 sys.path.append(os.environ["LESMAINSCRIPTS"])
 from FileSystem import FileSystem
-
+import pathlib
 
 class EmulatorMetaData:
-    def __init__(self, configFile):
+    def __init__(self, locationsFile):
         
-        self.configFile = configFile
+        self.initLocationsFile(locationsFile)
         
         self.initConfigFile()
         
@@ -24,9 +24,40 @@ class EmulatorMetaData:
         self.initResponseVariableDerivatives()
         
         self.initDesignVariables()
+    
+    def initLocationsFile(self, locationsFile):
         
+        assert( pathlib.Path(locationsFile).is_file() )
+        
+        self.locationsFile = FileSystem.readYAML(locationsFile)
+        
+        try:
+            self.configFile = FileSystem.readYAML(self.locationsFile["configFile"])
+        except KeyError:
+            sys.exit("configFile not given. Exiting.")
+        
+        try:
+            self.trainingSimulationRootFolder = pathlib.Path(self.locationsFile["trainingSimulationRootFolder"])
+        except KeyError:
+            pass
+        
+        try:
+            self.postProsDataRootFolder = pathlib.Path(self.locationsFile["postProsDataRootFolder"])
+        except KeyError:
+            sys.exit("dataOutputRootFolder not given. Exiting.")
+        
+        try:
+            self.figureFolder = pathlib.Path(self.locationsFile["figureFolder"])
+        except KeyError:
+            pass
+        
+        try:
+            self.tableFolder = pathlib.Path(self.locationsFile["tableFolder"])
+        except KeyError:
+            pass
+        
+    
     def initConfigFile(self):
-        self._readConfigFile()
         
         self._setUpParametersFromConfigFile()
         
@@ -47,6 +78,8 @@ class EmulatorMetaData:
         
         self.boundOrdo = list(map(float, self.configFile["boundOrdo"]))
         
+        self.responseIndicatorVariable = "responseIndicator"
+        
         self.responseIndicator = self.configFile[self.responseIndicatorVariable]
         
         self.bootstrappingParameters = self.configFile[ "bootStrap" ]
@@ -58,8 +91,6 @@ class EmulatorMetaData:
         self.kFlodSplits = self.configFile["kFlodSplits"]
         
 
-    def _readConfigFile(self):
-        self.configFile = FileSystem.readYAML(self.configFile)
     def _testConfigFile(self):
         for key in ["responseVariable", "filteringVariablesWithConditions", self.responseIndicatorVariable]:
             assert(key in self.configFile)        

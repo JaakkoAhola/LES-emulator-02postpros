@@ -9,34 +9,34 @@ Created on Fri Jan 22 12:23:51 2021
 print(__doc__)
 import os
 import time
+import sys
 from EmulatorData import EmulatorData
 
 def main():
 
-    rootFolderOfEmulatorSets = "/home/aholaj/mounttauskansiot/puhtiwork/eclair_training_simulations"
-    rootFolderOfDataOutputs = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData"
-    inputConfigFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/phase02.yaml"
+    try:
+        locationsFile = sys.argv[1]
+    except IndexError:
+        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/locations_local_puhti_mounted.yaml"
+        
+
 
     ###########
     emulatorSets = {"LVL3Night" : EmulatorData("LVL3Night",
-                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
-                                             [rootFolderOfDataOutputs],
-                                             inputConfigFile
+                                             "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night",
+                                             locationsFile
                                              ),
                 "LVL3Day"   :  EmulatorData( "LVL3Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
+                                             "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day",
+                                            locationsFile
                                             ),
                 "LVL4Night" :  EmulatorData("LVL4Night",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
+                                            "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night",
+                                            locationsFile
                                             ),
                 "LVL4Day"   : EmulatorData("LVL4Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
-                                            [rootFolderOfDataOutputs],
-                                            inputConfigFile
+                                            "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
+                                            locationsFile
                                             )
                 }
 

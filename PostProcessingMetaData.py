@@ -20,24 +20,17 @@ Created on Wed Dec 16 18:21:10 2020
 
 PostProcessingMetaData Class
 """
-
-    def __init__(self, name : str, trainingSimulationRootFolder : list, dataOutputRootFolder : list, configFile = None, figureFolder = None):
+    def __init__(self, name : str, trainingSimulationSubFolder : str, locationsFile : str):
 
         self.name = name
         self.ID_prefix = name[3:5]
         
-        self.responseIndicatorVariable = "responseIndicator"
-        
-        if configFile is not None:
-            super().__init__(configFile)
+        super().__init__(locationsFile)
             
-        if figureFolder is not None:
-            self.figureFolder = self.__joinFolders( figureFolder )
 
-        self.trainingSimulationRootFolder = self.__joinFolders( trainingSimulationRootFolder )
-        self.dataOutputRootFolder = self.__joinFolders( dataOutputRootFolder )
+        self.trainingSimulationRootFolder = self.trainingSimulationRootFolder / trainingSimulationSubFolder
 
-        self.dataOutputFolder = self.dataOutputRootFolder / self.name
+        self.dataOutputFolder = self.postProsDataRootFolder / self.name
 
         self.phase01CSVFile = self.dataOutputFolder / (self.name + "_phase01.csv")
 

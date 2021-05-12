@@ -116,24 +116,26 @@ class Phase01(PostProcessingMetaData):
 
 def main():
 
-    rootFolderOfEmulatorSets = os.environ["EMULATORDATAROOTFOLDER"]
-    rootFolderOfDataOutputs = os.environ["EMULATORPOSTPROSDATAROOTFOLDER"]
+    try:
+        locationsFile = sys.argv[1]
+    except IndexError:
+        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/locations_local_puhti_mounted.yaml"
 
     emulatorSets = {"LVL3Night" : Phase01("LVL3Night",
-                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night"],
-                                             [rootFolderOfDataOutputs],
+                                             "case_emulator_DESIGN_v3.0.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_night",
+                                             locationsFile,
                                              ),
                 "LVL3Day"   :  Phase01( "LVL3Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],
-                                            [rootFolderOfDataOutputs],
+                                            "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day",
+                                            locationsFile,
                                             ),
                 "LVL4Night" :  Phase01("LVL4Night",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night"],
-                                            [rootFolderOfDataOutputs],
+                                            "case_emulator_DESIGN_v3.2_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_night",
+                                            locationsFile,
                                             ),
                 "LVL4Day"   : Phase01("LVL4Day",
-                                            [rootFolderOfEmulatorSets, "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day"],
-                                            [rootFolderOfDataOutputs],
+                                             "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
+                                            locationsFile,
                                             )
                 }
 
