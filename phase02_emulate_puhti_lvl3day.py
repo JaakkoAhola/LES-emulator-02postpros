@@ -11,32 +11,30 @@ import time
 import sys
 from EmulatorData import EmulatorData
 
-def main(inputConfigFile):
+def main():
 
-    rootFolderOfEmulatorSets = "/fmi/scratch/project_2001927/aholaj/eclair_training_simulations"
-    rootFolderOfDataOutputs = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData"
+    try:
+        locationsFile = sys.argv[1]
+    except IndexError:
+        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/locations_local_puhti_mounted.yaml"
+        
+
 
     ###########
-    emulatorSets = {"LVL3Day" : EmulatorData("LVL3Day",
-                                             [rootFolderOfEmulatorSets,  "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day"],#/fmi/scratch/project_2001927/aholaj/eclair_training_simulations/case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day
-                                             [rootFolderOfDataOutputs],
-                                             inputConfigFile
-                                             )
+    emulatorSets = {"LVL3Day" : EmulatorData( "LVL3Day",
+                                             "case_emulator_DESIGN_v3.1.0_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL3_day",
+                                            locationsFile
+                                            )
                 }
 
     for key in emulatorSets:
         emulatorSets[key].prepare()
-        emulatorSets[key].runEmulator()
+        emulatorSets[key].runMethodAnalysis()
+        emulatorSets[key].featureImportance()
+        emulatorSets[key].bootStrap()
         emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
-    try:
-        inputConfigFile = sys.argv[1]
-    except IndexError:
-        inputConfigFile = "/fmi/scratch/project_2001927/aholaj/EmulatorManuscriptData/phase02.yaml"
-    print("inputConfigFile", inputConfigFile)
-
-    main(inputConfigFile)
-
+    main()
     end = time.time()
     print(f"\nScript completed in { end - start : .1f} seconds")

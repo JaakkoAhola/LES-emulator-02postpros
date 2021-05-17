@@ -44,7 +44,7 @@ class EmulatorMetaData:
         try:
             self.postProsDataRootFolder = pathlib.Path(self.locationsFile["postProsDataRootFolder"])
         except KeyError:
-            sys.exit("dataOutputRootFolder not given. Exiting.")
+            sys.exit("postProsDataRootFolder not given. Exiting.")
         
         try:
             self.figureFolder = pathlib.Path(self.locationsFile["figureFolder"])
