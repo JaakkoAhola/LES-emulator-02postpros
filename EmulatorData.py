@@ -484,7 +484,7 @@ class EmulatorData(PostProcessingMetaData):
     def __init_bootstrap(self):
         self.bootstrapStats = {}
 
-        self.bootstrapKFold = KFold(n_splits = self.kFlodSplits*2, shuffle = True, random_state = 0)
+        self.bootstrapKFold = KFold(n_splits = self.kFlodSplits, shuffle = True, random_state = 0)
 
         self.bootstrapModelList = ["linearFit", "emulator", "correctedLinearFit", "simulated"]
 
