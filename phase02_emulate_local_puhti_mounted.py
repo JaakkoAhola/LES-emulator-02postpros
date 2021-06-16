@@ -44,7 +44,7 @@ def main():
         emulatorSets[key].prepare()
         emulatorSets[key].runMethodAnalysis()
         emulatorSets[key].featureImportance()
-        emulatorSets[key].bootStrap()
+        # emulatorSets[key].bootStrap()
         emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
