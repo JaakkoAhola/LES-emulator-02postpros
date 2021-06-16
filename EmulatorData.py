@@ -24,6 +24,7 @@ import sys
 from scipy import stats
 import LES2emu
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
@@ -606,6 +607,10 @@ class EmulatorData(PostProcessingMetaData):
         dataframe["cfracEndValue"] = dataframe.apply( lambda row: \
                                                      collection[ row["LABEL"] ].getTSDataset()["cfrac"].values[-1],
                                                      axis = 1)
+            
+        dataframe["cloudThickness"] = dataframe.apply( lambda row: \
+                                                     collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1] - collection[ row["LABEL"] ].getTSDataset()["zb"].values[-1],
+                                                     axis = 1)
 
     def _getAnomalyLimitsConstant(self):
         self.anomalyLimitLow["tpot_inv"] = 2.5
@@ -829,7 +834,7 @@ class EmulatorData(PostProcessingMetaData):
     def _statsMethod(self, observed, predicted):
         slope, intercept, r_value, p_value, std_err = stats.linregress(observed, predicted)
 
-        rSquared = numpy.power(r_value, 2)
+        rSquared = r2_score(observed, predicted)
 
         rmse = mean_squared_error(observed, predicted, squared=False)
 
