@@ -124,6 +124,8 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__getSimulationCollection()
 
         self.__prepare__filterGetOutlierDataFromLESoutput()
+        
+        self._getRainProductionFirstHour()
 
         self.__prepare__filter()
 
@@ -144,6 +146,8 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__getSimulationCollection()
 
         self.__prepare__filterGetOutlierDataFromLESoutput()
+        
+        self._getRainProductionFirstHour()
 
         self.__prepare__filter()
 
@@ -718,7 +722,28 @@ class EmulatorData(PostProcessingMetaData):
 
         ### end emul for loop
         dataframe["drflx"] = newCloudRadiativeValues
-
+        
+    def _getRainProductionFirstHour(self):
+        
+        dataframe = self.simulationCompleteData
+        
+        rainProductionList = numpy.zeros(numpy.shape(dataframe["n"]))
+        
+        start = 1.5
+        end = 2.5
+        
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            self.simulationCollection[emul].getTSDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+            
+            ts = self.simulationCollection[emul].getTSDataset()
+            
+            tsSliced = ts.sel(time=slice(start,end) )
+            rainProductionValue = (tsSliced["coag_rr"] + tsSliced["auto_rr"] + tsSliced["diag_rr"]).mean()
+            rainProductionList[emulInd] = rainProductionValue
+            
+        dataframe["rainProductionFirstHour"] = rainProductionList
+        
     def _getWeightedUpdraft(self):
 
         dataframe = self.simulationCompleteData
