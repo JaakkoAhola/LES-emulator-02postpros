@@ -422,7 +422,7 @@ def GetEmu2Vars(path, prefix):
     columnNames=["ID","cond","sedi","coag","auto","diag",
          "prcp","wpos","w2pos","cdnc_p","cdnc_wp","n",
          "drflx", "m"]
-    
+
     outDataFrame = pandas.DataFrame(columns = columnNames)
     i=1
     while True:
@@ -439,9 +439,9 @@ def GetEmu2Vars(path, prefix):
         #
         # Data file
         fileCSV = pathlib.Path((path+fmt+'.response.csv')%(i,i))
-        
+
         file=(path+fmt+'.ts.nc')%(i,i)
-        
+
         if fileCSV.is_file():
             newRow = pandas.read_csv(fileCSV, index_col = 0)
             #newRow = newRow.transpose()
@@ -469,31 +469,31 @@ def GetEmu2Vars(path, prefix):
             # 3) Cloud base positive updraft velocity (m/s)
             file_4d=(path+fmt+'.nc') % (i,i)
             wpos,w2pos,cdnc_p,cdnc_wp,n,drflx,m = get_netcdf_updraft(file_4d,tstart,tend,ttol=10.)
-            
+
             newRow = pandas.DataFrame(data={"ID": prefix + "_" + str(i).zfill(3), "cond":cond,"sedi":sedi,"coag":coag,"auto":auto,"diag":diag,
              "prcp":prcp,"wpos":wpos,"w2pos":w2pos,"cdnc_p":cdnc_p,"cdnc_wp":cdnc_wp,"n":n,
              "drflx":drflx, "m":m}, index = {"i":i})
-            
+
             # newRow = newRow.transpose()
             newRow.to_csv(fileCSV, index=False)
-            
-        
+
+
         outDataFrame = outDataFrame.append(newRow, ignore_index=True )
-        
-        
+
+
 
         if i==1:
             for columnName in outDataFrame.columns:
                 print(f"{columnName:>10}", end = "")
             print()
-        
+
         for ind, rowValue in enumerate(outDataFrame.iloc[-1].values):
             if isinstance(rowValue, float):
                 print(f"{rowValue:10.2}", end="")
             else:
                 print(f"{rowValue:10}", end="")
         print()
-            
+
         i+=1
     outDataFrame = outDataFrame.set_index("ID")
     return outDataFrame
@@ -763,8 +763,8 @@ def calc_cloud_base(p_surf,theta,rw):
 
 
 def calc_lwc_altitude(p_surf,theta,rw,zz):
-    # Calculate cloud water mixing ratio at a given altitude z (m) when liquid water potential 
-    # temperature (theta [k]) and water vapor mixing ratio (rw [kg/kg]) are constants. 
+    # Calculate cloud water mixing ratio at a given altitude z (m) when liquid water potential
+    # temperature (theta [k]) and water vapor mixing ratio (rw [kg/kg]) are constants.
     # Surface pressure p_surf is given in Pa.
     #
     # Constants
@@ -784,7 +784,7 @@ def calc_lwc_altitude(p_surf,theta,rw,zz):
     press=p_surf    # Start from surface
     RH=0
     while z<zz:
-        # Temperature (K) 
+        # Temperature (K)
         tavg=theta*(press/p00)**rcp
         #
         # Current RH (%)
@@ -845,7 +845,7 @@ def solve_rw(p_surf,theta,lwc,zz):
     while k<100:
         q_new=(q_min+q_max)/2
         lwc_calc=calc_lwc_altitude(p_surf,theta,q_new,zz)
-        #    
+        #
         if abs(lwc-lwc_calc)<1e-7:
             break
         elif lwc<lwc_calc:
@@ -895,7 +895,7 @@ def calc_lwp(p_surf,theta,pblh,rt):
     press=p_surf    # Start from surface
     RH=0
     while press>p_top and z<=z_top:
-        # Temperature (K) 
+        # Temperature (K)
         tavg=theta*(press/p00)**rcp
         #
         # Current RH (%)
@@ -942,53 +942,62 @@ def calc_lwp(p_surf,theta,pblh,rt):
     return lwp,zb,zc,clw_max
 
 
-def solve_rw_lwp(p_surf,theta,lwp,pblh,debug=False):
+def solve_rw_lwp(p_surf, theta, lwp, pblh, debug=False):
     # Solve boundary layer total water mixing ratio (kg/kg) from liquid water potential temperature (theta [K]),
     # liquid water path (lwp, kg/m^2) and boundary layer height (pblh, Pa or km) for an adiabatic cloud.
     # For example, solve_rw_lwp(101780.,293.,100e-3,20000.) would return 0.00723684088331 [kg/kg].
     #
     # Constants
-    R=287.04    # Specific gas constant for dry air (R_specific=R/M), J/kg/K
-    cp=1005.0    # Specific heat for a constant pressure
-    rcp=R/cp
-    p00=1.0e+05
+    R = 287.04    # Specific gas constant for dry air (R_specific=R/M), J/kg/K
+    cp = 1005.0    # Specific heat for a constant pressure
+    rcp = R/cp
+    p00 = 1.0e+05
     #
     # LWP tolerance: 0.1 % but not more than 0.1e-3 kg/m^2 and not less than 1e-3 kg/kg
-    tol=min(max(0.001*lwp,0.1e-3),1e-3)
+    tol = min(max(0.001*lwp, 0.1e-3), 1e-3)
     #
     # Surface temperature (dry, i.e. no fog)
-    t_surf=theta*(p_surf/p00)**rcp
+    t_surf = theta*(p_surf/p00)**rcp
     #
     # The highest LWP when RH=100% at the surface (no fog)
-    rw_max= calc_sat_mixr(p_surf,t_surf)
-    lwp_max,zb,zc,clw_max=calc_lwp(p_surf,theta,pblh,rw_max)
+    rw_max = calc_sat_mixr(p_surf, t_surf)
+    lwp_max, zb, zc, clw_max = calc_lwp(p_surf, theta, pblh, rw_max)
     # No fog cases
-    if lwp_max<lwp:
-        if debug: print ('Too high LWP (%5.1f g/m2), the maximum is %5.1f g/m2 (theta=%6.2f K, pblh=%3.0f hPa)')%(lwp*1e3, lwp_max*1e3,theta,pblh/100.)
+    if lwp_max < lwp:
+        if debug:
+            print(rf"Too high LWP: {lwp*1e3:5.1f} (g/m2),\
+                        the maximum is {lwp_max*1e3:5.1f} (g/m2)\
+            (theta = {theta:6.2f} (K), pblh={pblh/100.:3.0f} (hPa))")
         return -999.
     #
     # The lowest LWP when RH=0% at the surface
-    rw_min=0.
-    lwp_min,zb,zc,clw_max=calc_lwp(p_surf,theta,pblh,rw_min)
-    if lwp_min>lwp:
-        if debug: print ('Too low LWP (%5.1f g/m2), the minimum is %5.1f g/m2 (theta=%6.2f K, pblh=%3.0f hPa)')%(lwp*1e3, lwp_max*1e3,theta,pblh/100.)
+    rw_min = 0.
+    lwp_min, zb, zc, clw_max = calc_lwp(p_surf, theta, pblh, rw_min)
+    if lwp_min > lwp:
+        if debug:
+            print(rf"Too low LWP: {lwp*1e3:5.1f} (g/m2),\
+                   the minimum is {lwp_max*1e3:5.1f} (g/m2)\
+                   (theta={theta:6.2f} (K), pblh={pblh/100.:3.0f} (hPa))")
         return -999.
     #
-    k=0
-    while k<100:
-        rw_new=(rw_min+rw_max)*0.5
-        lwp_new,zb,zc,clw_max=calc_lwp(p_surf,theta,pblh,rw_new)
+    k = 0
+    while k < 100:
+        rw_new = (rw_min+rw_max)*0.5
+        lwp_new, zb, zc, clw_max = calc_lwp(p_surf, theta, pblh, rw_new)
         #
-        if abs(lwp-lwp_new)<tol or abs(rw_max-rw_min)<0.001e-3:
+        if abs(lwp-lwp_new) < tol or abs(rw_max-rw_min) < 0.001e-3:
             return rw_new
-        elif lwp<lwp_new:
-            rw_max=rw_new
+        elif lwp < lwp_new:
+            rw_max = rw_new
         else:
-            rw_min=rw_new
-        k+=1
+            rw_min = rw_new
+        k += 1
     #
     # Failed
-    if debug: print ('Iteration failed: current LWP=%5.1f, target LWP=%5.1f')%(lwp_new*1e3,lwp*1e3)
+    if debug:
+        print(rf"Iteration failed: \
+              current LWP={lwp_new*1e3:5.1f},\
+                  target LWP={lwp*1e3:5.1f}")
     return -999.
 
 
@@ -1078,7 +1087,7 @@ def ls_fit(xx,yy):
         else:
             a_std=0.0
             b_std=0.0
-    # 
+    #
     return a,b,a_std,b_std,
 
 def average_scaled(x,y):
@@ -1104,7 +1113,7 @@ def average_scaled(x,y):
 
 #
 # Functions from the LES model
-# 
+#
 
 def calc_psat_w(T):
     # Function calculates the saturation vapor pressure (Pa) of liquid water as a function of temperature (K)
