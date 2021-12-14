@@ -17,8 +17,8 @@ def main():
     try:
         locationsFile = sys.argv[1]
     except IndexError:
-        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/locations_local_puhti_mounted.yaml"
-        
+        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData_revision_v0.1/locationsMounted.yaml"
+
 
 
     ###########
