@@ -124,7 +124,7 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__getSimulationCollection()
 
         self.__prepare__filterGetOutlierDataFromLESoutput()
-        
+
         self._getRainProductionFirstHour()
 
         self.__prepare__filter()
@@ -146,7 +146,7 @@ class EmulatorData(PostProcessingMetaData):
         self.__prepare__getSimulationCollection()
 
         self.__prepare__filterGetOutlierDataFromLESoutput()
-        
+
         self._getRainProductionFirstHour()
 
         self.__prepare__filter()
@@ -611,10 +611,39 @@ class EmulatorData(PostProcessingMetaData):
         dataframe["cfracEndValue"] = dataframe.apply( lambda row: \
                                                      collection[ row["LABEL"] ].getTSDataset()["cfrac"].values[-1],
                                                      axis = 1)
-            
+
         dataframe["cloudThickness"] = dataframe.apply( lambda row: \
                                                      collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1] - collection[ row["LABEL"] ].getTSDataset()["zb"].values[-1],
                                                      axis = 1)
+
+        self._set_ts_datasets_time_to_hour_based()
+        dataframe["rwp_last_hour"] = dataframe.apply( lambda row: \
+                                                     collection[ row["LABEL"] ].getTSDataset()["rwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                     axis = 1)
+
+        dataframe["lwp_last_hour"] = dataframe.apply(lambda row: \
+                                                     collection[ row["LABEL"] ].getTSDataset()["lwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                     axis = 1)
+
+        dataframe["lwp_rwp_relative_change"] = dataframe.apply(lambda row: \
+                                                               (row["rwp_last_hour"] + row["lwp_last_hour"])*1e3 / row["lwp"],
+                                                               axis=1)
+
+        latent_heat_of_vaporization = 2.5e-06
+
+        try:
+            dataframe["surface_precipitation_accumulated"] = dataframe.apply(lambda row: \
+                                                                             numpy.sum(collection[ row["LABEL"] ].getTSDataset()["rmH2Opr"].values),
+                                                                             axis=1)
+        except KeyError:
+            dataframe["surface_precipitation_accumulated"] = dataframe.apply(lambda row: \
+                                                                             numpy.sum(collection[ row["LABEL"] ].getTSDataset()["prcp"].values*latent_heat_of_vaporization),
+                                                                             axis=1)
+
+    def _set_ts_datasets_time_to_hour_based(self):
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            self.simulationCollection[emul].getTSDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
 
     def _getAnomalyLimitsConstant(self):
         self.anomalyLimitLow["tpot_inv"] = 2.5
@@ -722,28 +751,28 @@ class EmulatorData(PostProcessingMetaData):
 
         ### end emul for loop
         dataframe["drflx"] = newCloudRadiativeValues
-        
+
     def _getRainProductionFirstHour(self):
-        
+
         dataframe = self.simulationCompleteData
-        
+
         rainProductionList = numpy.zeros(numpy.shape(dataframe["n"]))
-        
+
         start = 1.5
         end = 2.5
-        
+
         for emulInd, emul in enumerate(list(self.simulationCollection)):
             self.simulationCollection[emul].getTSDataset()
             self.simulationCollection[emul].setTimeCoordToHours()
-            
+
             ts = self.simulationCollection[emul].getTSDataset()
-            
+
             tsSliced = ts.sel(time=slice(start,end) )
             rainProductionValue = (tsSliced["coag_rr"] + tsSliced["auto_rr"] + tsSliced["diag_rr"]).mean()
             rainProductionList[emulInd] = rainProductionValue
-            
+
         dataframe["rainProductionFirstHour"] = rainProductionList
-        
+
     def _getWeightedUpdraft(self):
 
         dataframe = self.simulationCompleteData
