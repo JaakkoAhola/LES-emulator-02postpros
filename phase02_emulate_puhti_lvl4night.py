@@ -16,16 +16,16 @@ def main():
     try:
         locationsFile = sys.argv[1]
     except IndexError:
-        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData/locations_local_puhti_mounted.yaml"
-        
+        locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData_revision_v0.1/locationsMounted.yaml"
+
 
 
     ###########
-    emulatorSets = { "LVL4Day" :  EmulatorData("LVL4Day",
-                                            "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
-                                            locationsFile
-                                            )
-                }
+    emulatorSets = {"LVL4Day" : EmulatorData("LVL4Day",
+                                             "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
+                                             locationsFile
+                                             )
+                    }
 
     for key in emulatorSets:
         emulatorSets[key].prepare()
