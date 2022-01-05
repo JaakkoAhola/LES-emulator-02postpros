@@ -596,6 +596,8 @@ class EmulatorData(PostProcessingMetaData):
         dataframe = self.simulationCompleteData
         collection = self.simulationCollection
 
+        self._set_ts_datasets_time_to_hour_based()
+
         dataframe["lwpEndValue"] = dataframe.apply( lambda row: \
                                                    collection[ row["LABEL"] ].getTSDataset()["lwp_bar"].values[-1]*1000.,
                                                    axis = 1)
@@ -603,6 +605,35 @@ class EmulatorData(PostProcessingMetaData):
         dataframe["lwpRelativeChange"] = dataframe.apply( lambda row:\
                                                          row["lwpEndValue"] / row["lwp"],
                                                          axis = 1 )
+
+        dataframe["zc_last_hour"] = dataframe.apply( lambda row: \
+                                                              collection[ row["LABEL"] ].getTSDataset()["zc"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                              axis = 1)
+
+        dataframe["zc_end_value"] = dataframe.apply( lambda row: \
+                                                              collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1],
+                                                              axis = 1)
+        dataframe["zb_end_value"] = dataframe.apply( lambda row: \
+                                                              collection[ row["LABEL"] ].getTSDataset()["zb"].values[-1],
+                                                              axis = 1)
+
+        dataframe["zc_first"] = dataframe.apply(lambda row: \
+                                                collection[ row["LABEL"] ].getTSDataset()["zc"].where(collection[ row["LABEL"] ].getTSDataset()["zc"] > 0, drop=True).values[0],
+                                                axis = 1)
+
+        dataframe["zb_first"] = dataframe.apply(lambda row: \
+                                                collection[ row["LABEL"] ].getTSDataset()["zb"].where(collection[ row["LABEL"] ].getTSDataset()["zb"] > 0, drop=True).values[0],
+                                                axis = 1)
+
+        dataframe["zb_last_hour"] = dataframe.apply( lambda row: \
+                                                              collection[ row["LABEL"] ].getTSDataset()["zb"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                              axis = 1)
+
+        dataframe["delta_zm"] = dataframe.apply(lambda row: \
+                                                numpy.mean(collection[ row["LABEL"] ].getTSDataset()["zc"].sel(time=slice(self.timeStart, self.timeEnd+1)).values - \
+                                                collection[ row["LABEL"] ].getTSDataset()["zb"].sel(time=slice(self.timeStart, self.timeEnd+1)).values),
+                                                axis=1)
+
 
         dataframe["cloudTopRelativeChange"] = dataframe.apply( lambda row: \
                                                               collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1] / row["pblh_m"],
@@ -616,17 +647,21 @@ class EmulatorData(PostProcessingMetaData):
                                                      collection[ row["LABEL"] ].getTSDataset()["zc"].values[-1] - collection[ row["LABEL"] ].getTSDataset()["zb"].values[-1],
                                                      axis = 1)
 
-        self._set_ts_datasets_time_to_hour_based()
+
         dataframe["rwp_last_hour"] = dataframe.apply( lambda row: \
-                                                     collection[ row["LABEL"] ].getTSDataset()["rwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                     collection[ row["LABEL"] ].getTSDataset()["rwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values*1e3,
                                                      axis = 1)
 
         dataframe["lwp_last_hour"] = dataframe.apply(lambda row: \
-                                                     collection[ row["LABEL"] ].getTSDataset()["lwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values,
+                                                     collection[ row["LABEL"] ].getTSDataset()["lwp_bar"].sel(time=slice(self.timeStart, self.timeEnd+1)).mean().values*1e3,
                                                      axis = 1)
 
+        dataframe["total_water_path_last_hour_mean"] = dataframe.apply(lambda row: \
+                                                               row["rwp_last_hour"] + row["lwp_last_hour"],
+                                                               axis=1)
+
         dataframe["lwp_rwp_relative_change"] = dataframe.apply(lambda row: \
-                                                               (row["rwp_last_hour"] + row["lwp_last_hour"])*1e3 / row["lwp"],
+                                                               (row["rwp_last_hour"] + row["lwp_last_hour"]) / row["lwp"],
                                                                axis=1)
 
         latent_heat_of_vaporization = 2.5e-06
