@@ -21,7 +21,7 @@ def main():
 
 
     ###########
-    emulatorSets = {"LVL4Day" : EmulatorData("LVL4Day",
+    emulatorSets = {"LVL4Night" : EmulatorData("LVL4Night",
                                              "case_emulator_DESIGN_v3.3_LES_ECLAIR_branch_ECLAIRv2.0.cray.fast_LVL4_day",
                                              locationsFile
                                              )
@@ -31,7 +31,7 @@ def main():
         emulatorSets[key].prepare()
         emulatorSets[key].runMethodAnalysis()
         emulatorSets[key].featureImportance()
-        emulatorSets[key].bootStrap()
+        # emulatorSets[key].bootStrap()
         emulatorSets[key].postProcess()
 if __name__ == "__main__":
     start = time.time()
