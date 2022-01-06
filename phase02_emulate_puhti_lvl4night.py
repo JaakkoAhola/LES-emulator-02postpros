@@ -6,10 +6,12 @@ Created on Fri Jan 22 12:23:51 2021
 @author: Jaakko Ahola, Finnish Meteorological Institute
 @licence: MIT licence Copyright
 """
-print(__doc__)
 import time
 import sys
 from EmulatorData import EmulatorData
+sys.path.append(os.environ["LESMAINSCRIPTS"])
+from Data import Data
+
 
 def main():
 
@@ -17,8 +19,6 @@ def main():
         locationsFile = sys.argv[1]
     except IndexError:
         locationsFile = "/home/aholaj/mounttauskansiot/puhtiwork/EmulatorManuscriptData_revision_v0.1/locationsMounted.yaml"
-
-
 
     ###########
     emulatorSets = {"LVL4Night" : EmulatorData("LVL4Night",
@@ -33,8 +33,12 @@ def main():
         emulatorSets[key].featureImportance()
         # emulatorSets[key].bootStrap()
         emulatorSets[key].postProcess()
+
 if __name__ == "__main__":
     start = time.time()
+    now = datetime.now().strftime('%d.%m.%Y %H.%M')
+    print(f"Script started {now}.")
     main()
     end = time.time()
-    print(f"\nScript completed in { end - start : .1f} seconds")
+    now = datetime.now().strftime('%d.%m.%Y %H.%M')
+    print(f"Script completed {now} in {Data.timeDuration(end - start)}")
