@@ -10,7 +10,6 @@ Second phase of post-processing simulation data for a emulator
 
 Includes running actual emulator with leave-one-out method
 """
-print(__doc__)
 import math
 import multiprocessing
 import numpy
@@ -29,9 +28,6 @@ from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.inspection import permutation_importance
-
-
-
 
 sys.path.append(os.environ["LESMAINSCRIPTS"])
 
@@ -664,6 +660,10 @@ class EmulatorData(PostProcessingMetaData):
                                                                (row["rwp_last_hour"] + row["lwp_last_hour"]) / row["lwp"],
                                                                axis=1)
 
+        self._get_decoupled_stat()
+
+        self._getWposLastHourTendency()
+
         latent_heat_of_vaporization = 2.5e-06
 
         try:
@@ -678,6 +678,11 @@ class EmulatorData(PostProcessingMetaData):
     def _set_ts_datasets_time_to_hour_based(self):
         for emulInd, emul in enumerate(list(self.simulationCollection)):
             self.simulationCollection[emul].getTSDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+
+    def _set_ps_datasets_time_to_hour_based(self):
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            self.simulationCollection[emul].getPSDataset()
             self.simulationCollection[emul].setTimeCoordToHours()
 
     def _getAnomalyLimitsConstant(self):
@@ -840,6 +845,106 @@ class EmulatorData(PostProcessingMetaData):
 
         print(f"{self.name} Time to calculate updrafts {t2-t1:.1f}")
 
+
+    def _getWposLastHourTendency(self):
+        dataframe = self.simulationCompleteData
+
+        dataframe["WposLastHourTendency"] = numpy.zeros(numpy.shape(dataframe["wpos"]))
+
+        oldFile = self.dataOutputFolder / (self.name + "_complete_wpos_tendency.csv")
+
+        if oldFile.is_file():
+            df = pandas.read_csv(oldFile, index_col=0)
+            dataframe["WposLastHourTendency"] = df.WposLastHourTendency.values
+            return
+
+
+        print(f"{self.name} Start calculation of WposLastHourTendency")
+
+        t1 = time.time()
+
+        for emul in self.simulationCollection:
+
+            filename = self.simulationCollection[emul].getNCDatasetFileName()
+            ncData = xarray.open_dataset(filename)
+            timeStartInd = Data.getClosestIndex( ncData.time.values, self.timeStart*3600. )
+            timeEndInd   = Data.getClosestIndex( ncData.time.values, self.timeEnd*3600. )
+
+            timeDict = {"start":timeStartInd,
+                        "end":timeEndInd}
+            wpos_base_mean = {"start":numpy.nan,
+                        "end":numpy.nan}
+            for timeKey in timeDict:
+                timeSlice = ncData.isel(time=timeDict[timeKey])
+                n=0
+                wpos=0
+                for x_dim in range(timeSlice.xt.shape[0]):
+                    for y_dim in range(timeSlice.ym.shape[0]):
+                        liquid_in_cloud_column = timeSlice["l"].isel(xt=x_dim,
+                                                                     yt=y_dim)
+                        kk, = numpy.where(liquid_in_cloud_column.values > self.tol_clw)
+                        try:
+                            cloud_base_dim = kk[0]
+                        except IndexError:
+                            continue
+                        wpos_base = timeSlice["w"].isel(xt=x_dim,
+                                                        ym=y_dim,
+                                                        zt=cloud_base_dim)
+                        if wpos_base>0.:
+                            kk = kk[0]
+                            n += 1
+                            wpos += wpos_base
+                if n>0:
+                    wpos /= n
+
+                wpos_base_mean[timeKey] = wpos
+
+            dataframe.loc[ dataframe.index == emul, "WposLastHourTendency"] = (wpos_base_mean["end"]-wpos_base_mean["start"]) / \
+                                                                              ((ncData.time.isel(time=timeEndInd).values-ncData.time.isel(time=timeStartInd).values)/3600.)
+
+        t2 = time.time()
+
+        print(f"{self.name} Time to calculate updraft tendency {t2-t1:.1f}")
+
+    def _get_decoupled_stat(self):
+        dataframe = self.simulationCompleteData
+
+        props = ["temperature", "water"]
+        variables = ["thl", "q"]
+        decoupled_stats = {}
+        for key in props:
+            decoupled_stats[key] = numpy.zeros(numpy.shape(dataframe["wpos"]))
+
+        variables_dict = dict(zip(props, variables))
+
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+
+            ts = self.simulationCollection[emul].getTSDataset()
+            ps = self.simulationCollection[emul].getPSDataset()
+
+            timeInd = -1
+
+            z_i = ts["zi1_bar"].isel(time=timeInd).values
+
+            pblh_top_start = Data.getClosestIndex(ps["zt"].values, 0.75*z_i)
+            pblh_top_end = Data.getClosestIndex(ps["zt"].values, 1*z_i)
+
+            pblh_bottom_start = 0
+            pblh_bottom_end = Data.getClosestIndex(ps["zt"].values, 0.25*z_i)
+
+            for key in props:
+                variable = variables_dict[key]
+                bottom = ps[variable].isel(time=timeInd).\
+                    isel(zt=slice(pblh_bottom_start, pblh_bottom_end+1)).mean()
+                top = ps[variable].isel(time=timeInd).\
+                    isel(zt=slice(pblh_top_start, pblh_top_end+1)).mean()
+
+                decoupled_stats[key][emulInd] = top - bottom
+
+
+
+        dataframe["temperature_decoupled"] = decoupled_stats["temperature"]
+        dataframe["water_decoupled"] = decoupled_stats["water"]*-1e3
 
 
     def __getCloudMask(self, cloudWaterMatrix, maskingFunction ):
