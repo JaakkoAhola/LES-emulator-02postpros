@@ -8,6 +8,8 @@ Created on Fri Jan 22 12:23:51 2021
 """
 import time
 import sys
+import os
+from datetime import datetime
 from EmulatorData import EmulatorData
 sys.path.append(os.environ["LESMAINSCRIPTS"])
 from Data import Data

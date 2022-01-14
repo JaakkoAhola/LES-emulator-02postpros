@@ -1,3 +1,6 @@
 *.pyc
 __pycache__
 zzz_*
+.ipynb_checkpoints/
+notebooks/
+*.pdf
