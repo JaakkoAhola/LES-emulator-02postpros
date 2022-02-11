@@ -660,20 +660,12 @@ class EmulatorData(PostProcessingMetaData):
                                                                (row["rwp_last_hour"] + row["lwp_last_hour"]) / row["lwp"],
                                                                axis=1)
 
+        self._getAccumulatedPrecipitation()
         self._get_decoupled_stat()
 
         self._getWposLastHourTendency()
 
-        latent_heat_of_vaporization = 2.5e-06
 
-        try:
-            dataframe["surface_precipitation_accumulated"] = dataframe.apply(lambda row: \
-                                                                             numpy.sum(collection[ row["LABEL"] ].getTSDataset()["rmH2Opr"].values),
-                                                                             axis=1)
-        except KeyError:
-            dataframe["surface_precipitation_accumulated"] = dataframe.apply(lambda row: \
-                                                                             numpy.sum(collection[ row["LABEL"] ].getTSDataset()["prcp"].values*latent_heat_of_vaporization),
-                                                                             axis=1)
 
     def _set_ts_datasets_time_to_hour_based(self):
         for emulInd, emul in enumerate(list(self.simulationCollection)):
@@ -791,6 +783,48 @@ class EmulatorData(PostProcessingMetaData):
 
         ### end emul for loop
         dataframe["drflx"] = newCloudRadiativeValues
+
+    def _getAccumulatedPrecipitation(self):
+
+        dataframe = self.simulationCompleteData
+
+        accumulated_precipitation = numpy.zeros(numpy.shape(dataframe["n"]))
+
+        start = 1.5
+        end = 2.5
+
+        latent_heat_of_vaporization = 2.5e-06
+
+
+        for emulInd, emul in enumerate(list(self.simulationCollection)):
+            self.simulationCollection[emul].getTSDataset()
+            self.simulationCollection[emul].setTimeCoordToHours()
+
+            ts = self.simulationCollection[emul].getTSDataset()
+
+            delta_time = ts.time.values[1:]- ts.time.values[:-1]
+            delta_time = numpy.insert(delta_time,
+                                      0,
+                                      ts.time.values[0])
+
+            delta_time = delta_time*3600.
+            print(delta_time)
+
+            try:
+                prcp = ts["rmH2Opr"].values
+            except KeyError:
+                prcp = ts["prcp"].values*latent_heat_of_vaporization
+
+            surface_precipitation_accumulated_value = numpy.sum(delta_time*prcp)
+
+            accumulated_precipitation[emulInd] = surface_precipitation_accumulated_value
+
+        dataframe["surface_precipitation_accumulated"] = accumulated_precipitation
+
+
+
+
+
 
     def _getRainProductionFirstHour(self):
 
